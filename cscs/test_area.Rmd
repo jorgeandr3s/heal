@@ -8,10 +8,11 @@ output: html_document
 # Loading anonymized data and dictionary
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(here)
 ```
 
 ```{r}
-df <- read.csv(file = "cscs/data/CSCS_data_anon.csv")
-dict <- read.csv(file = "cscs/docs/var_names-1.csv")
+df <- read.csv(here("cscs", "data", "CSCS_data_anon.csv"))
+dict <- read.csv(here("cscs","docs","var_names-1.csv"))
 ```
 
