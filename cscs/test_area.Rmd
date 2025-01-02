@@ -5,9 +5,14 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 
+# Loading anonymized data and dictionary
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-df <- read.csv(file = "cscs/data/CSCS_data_anon.csv")
-dict <- read.csv(file = "cscs/docs/var_names-1.csv")
+library(readr)
+```
+
+```{r}
+df <- read_csv(file = "data/CSCS_data_anon.csv")
+dict <- read_csv(file = "docs/var_names-1.csv")
 ```
 
