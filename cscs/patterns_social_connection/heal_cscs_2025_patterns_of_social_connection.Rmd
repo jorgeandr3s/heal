@@ -310,9 +310,9 @@ Below we see the characteristics of participants missing outcome information, th
 ```{r}
 demo_vars <- colnames(df)[c(2:14)] #contains 3 variables for age
 # Looking at differences between those with and without missing data
-missing_outcome_table <- df %>% mutate(missing_outcome = is.na(LONELY_dejong_emotional_social_loneliness_scale_score)) %>% CreateTableOne(vars = demo_vars, strata = "missing_outcome", data = .)
+missing_outcome_table <- df %>% mutate(missing_outcome = is.na(LONELY_dejong_emotional_social_loneliness_scale_score)  | is.na(LONELY_dejong_emotional_loneliness_sub_scale_score) | is.na(LONELY_dejong_social_loneliness_sub_scale_score)) %>% CreateTableOne(vars = demo_vars, strata = "missing_outcome", data = .)
 
-df <- df %>% filter(!is.na(LONELY_dejong_emotional_social_loneliness_scale_score))
+df <- df %>% filter(!is.na(LONELY_dejong_emotional_social_loneliness_scale_score) & !is.na(LONELY_dejong_emotional_loneliness_sub_scale_score) & !is.na(LONELY_dejong_social_loneliness_sub_scale_score))
 
 missing_outcome_table
 ```
@@ -359,4 +359,180 @@ p_load(patchwork)
 p3 <- emo_l +social_l+ plot_layout(nrow = 2)
 suppressWarnings(suppressMessages(print(p3))) 
 ```
+
+# Dealing with Missing Data 
+```{r}
+# Imputation
+if(file.exists(file = here("cscs","public_data","cscs_cross_2025_imputed.RDS"))){
+  df_imputed <- readRDS(here("cscs","public_data","cscs_cross_2025_imputed.RDS"))} else {
+    df_temp <- df %>% select(-DEMO_age_group,-DEMO_age_group_2, -exposure, -LGBTQ)
+
+    p_load(missForest)
+    df_imputed <- missForest(df_temp)$ximp
+    df_imputed[c("DEMO_age_group", "DEMO_age_group_2", "exposure", "LGBTQ")] <- df[c("DEMO_age_group", "DEMO_age_group_2", "exposure", "LGBTQ")]
+    saveRDS(df_imputed, file = here("cscs","public_data","cscs_cross_2025_imputed.RDS"))}
+
+# Listwise deletion
+df_complete_cases <- df %>% filter(complete.cases(.))
+```
+
+# Reducing data dimensionality
+Clustering activities
+```{r}
+p_load(FactoMineR)
+activities_mca <- MCA(df_imputed[activities_vars], graph = F)
+coords <- activities_mca$var$coord
+
+p_load(factoextra)
+fviz_nbclust(activities_mca$var$coord, kmeans, method = "wss")
+fviz_nbclust(activities_mca$var$coord, kmeans, method = "silhouette") #optimal kmeans is 3
+kmeans_result <- kmeans(coords, centers = 3)
+
+cluster1 <- names(kmeans_result$cluster[kmeans_result$cluster==1])
+cluster2 <- names(kmeans_result$cluster[kmeans_result$cluster==2])
+#names(kmeans_result$cluster[kmeans_result$cluster==3]) # ALL marked as no
+
+cluster1 <- sub("_Yes","",cluster1)
+cluster2 <- sub("_Yes","",cluster2)
+```
+
+Clustering social patterns
+```{r}
+df_simplified <- df_imputed %>%
+  mutate(
+    intimate_activities = rowSums(across(all_of(cluster1), ~ .x == "Yes")),
+    other_activities = rowSums(across(all_of(cluster2), ~ .x == "Yes"))) %>% select(-all_of(activities_vars), -LGBTQ, -exposure, -DEMO_age,-DEMO_age_group)
+df_simplified[11:23] <- lapply(df_simplified[11:23], as.numeric)
+pca_social_patterns <- prcomp(df_simplified[11:23],center = TRUE,scale. = T)
+summary(pca_social_patterns)
+
+#Eigenvalues
+pca_social_patterns$sdev^2 
+#First 4 components explain up to 74% of the variance.
+pca_scores <- as.data.frame(pca_social_patterns$x[, 1:4])
+loadings <- pca_social_patterns$rotation[, 1:4]
+View(loadings)
+factors_social_pattern <- c("family_friends","neighbours_coworkers", "friends_neighbours", "neighbours_family")
+df_simplified[factors_social_pattern] <- pca_scores
+df_simplified <- df_simplified %>% select(-c(11:23))
+
+```
+
+Separating outcomes for loneliness dimensions
+```{r}
+colnames(df_simplified) <- sub("DEMO_","",colnames(df_simplified))
+colnames(df_simplified) <- sub("GEO_","",colnames(df_simplified))
+colnames(df_simplified) <- sub("LONELY_","",colnames(df_simplified))
+colnames(df_simplified) <- sub("CONNECTION_social_","",colnames(df_simplified))
+colnames(df_simplified) <- sub("WELLNESS_","",colnames(df_simplified))
+
+df_simplified$social_loneliness <- factor(df_simplified$dejong_social_loneliness_sub_scale_score,
+                    levels = c(0, 1, 2, 3),
+                    labels = c("class0", "class1", "class2", "class3"))
+
+df_simplified$emotional_loneliness <- factor(df_simplified$dejong_emotional_loneliness_sub_scale_score,
+                    levels = c(0, 1, 2, 3),
+                    labels = c("class0", "class1", "class2", "class3"))
+
+df_simplified$dejong_emotional_social_loneliness_scale_score <- NULL
+df_simplified$dejong_emotional_loneliness_sub_scale_score <- NULL
+df_simplified$dejong_social_loneliness_sub_scale_score <- NULL
+```
+
+# Variable selection through random forest
+```{r}
+p_load(Boruta)
+social_loneliness_vars <- Boruta(social_loneliness ~ ., 
+                        data = df_simplified %>% select(-emotional_loneliness),
+                        doTrace = 0,
+                        maxRuns = 50)
+
+emotional_loneliness_vars <- Boruta(emotional_loneliness ~ ., 
+                        data = df_simplified %>% select(-social_loneliness),
+                        doTrace = 0,
+                        maxRuns = 50)
+```
+
+
+# DAG creation
+```{r}
+p_load(bnlearn)
+
+df_simplified <- df_simplified %>% select(-DATASET)
+born_with <- c("age_group_2", "gender", "orientation", "ethnicity")
+other_vars <- colnames(df_simplified)[!colnames(df_simplified) %in% born_with]
+
+blacklist <- expand.grid(
+  from = other_vars,
+  to = c("age_group_2", "ethnicity")
+)
+
+blacklist <- rbind(blacklist, expand.grid(
+  from = born_with,
+  to = born_with
+))
+# Learn DAG with Hill-Climbing (score-based)
+dag_hc <- hc(df_simplified,blacklist = blacklist)
+
+ 
+
+
+# Plot the result
+p_load(BiocManager)
+p_load(Rgraphviz)
+graphviz.plot(dag_hc)
+
+
+strength <- arc.strength(dag_hc, data = df_simplified)
+strength %>% View()
+
+```
+
+#Optional RANDOM FOREST direct analysis
+```{r eval=FALSE, include=TRUE}
+p_load(randomForest)
+p_load(caret)
+
+set.seed(123)
+
+
+# Set up tuning grid
+tune_grid <- expand.grid(mtry = c(2, 4, 6, 8, 10))
+
+# Train model using 5-fold cross-validation
+ctrl <- trainControl(method = "cv", number = 5, classProbs = TRUE, summaryFunction = multiClassSummary)
+
+rf_social_loneliness_model <- train(
+  social_loneliness ~ ., 
+  data = df_simplified %>% select(-emotional_loneliness),
+  method = "rf",
+  trControl = ctrl,
+  tuneGrid = tune_grid,
+  metric = "Kappa", 
+  ntree = 500
+)
+
+rf_emotional_loneliness_model <- train(
+  emotional_loneliness ~ ., 
+  data = df_simplified %>% select(-social_loneliness),
+  method = "rf",
+  trControl = ctrl,
+  tuneGrid = tune_grid,
+  metric = "Kappa", 
+  ntree = 500
+)
+
+# Review results
+social_imp_vars <- varImp(rf_social_loneliness_model)$importance
+social_imp_vars$prop <- social_imp_vars$Overall/sum(social_imp_vars$Overall)
+
+social_imp_vars$Include <- ifelse(social_imp_vars$Overall >=(max(social_imp_vars$Overall)*.1),T,F)
+
+emo_imp_vars <- varImp(rf_emotional_loneliness_model)$importance
+emo_imp_vars$Include <- ifelse(emo_imp_vars$Overall >=(max(emo_imp_vars$Overall)*.1),T,F)
+
+
+```
+
+
 
