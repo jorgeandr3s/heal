@@ -1,0 +1,362 @@
+---
+title: "HEAL_CSCS_2025_patterns_of_social_connection"
+author: "Jorge Andres Delgado-Ron"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Step 0. Loading packages, opening dataset, and metadata
+
+```{r setup}
+# This pakcage runs the script below for all future packages using p_load()
+if (!("pacman" %in% installed.packages()[, "Package"])) {
+	# Install the 'pacman' package if it's not installed
+	install.packages("pacman")
+}
+
+library("pacman")
+p_load(here)
+p_load(dplyr)
+p_load(DataExplorer)
+p_load(tableone)
+
+load(here("cscs","public_data","CSCS2025_full_cleaned_deidentified_data_and_metadata.RData"))
+
+```
+
+Custom functions
+```{r}
+
+# Input variable as text
+# Returns the unique label(s) and which data frame(s) contain it.
+
+which_dataset <- function(variable){
+levels(data$DATASET) <- c("baseline", "baseline", "cohort22", "cross22", "cohort23", "cross23", "cohort24", "cross24")
+x <- data %>% select(DATASET, !!sym(variable)) %>% group_by(DATASET) %>% summarise(result = !all(is.na(!!sym(variable)))) %>% select(DATASET, result)  %>% arrange(as.character(DATASET))
+y <- unique(labels$text[labels$new_var==variable])
+z <- list(y,x)
+return(z)
+}
+
+# Input list of variables
+# Returns a dataframe with variables as rows and data frames as columns
+
+which_datasets_group <- function(list_of_vars){
+df_temp <- which_dataset(list_of_vars[1])[[2]]
+colnames(df_temp)[2] <- list_of_vars[1]
+
+for(i in 2:length(list_of_vars)){
+x <-  which_dataset(list_of_vars[i])[[2]]
+colnames(x)[2] <- list_of_vars[i]
+df_temp <- merge(df_temp,x, by="DATASET")
+}
+rownames(df_temp) <- df_temp$DATASET
+
+df <- as.data.frame(t(df_temp)) %>% mutate(variable_name=rownames(.)) %>% relocate(variable_name, .before = baseline) %>% slice(-1) %>% arrange(as.character(variable_name))
+rownames(df) <-NULL
+return(df)
+}
+
+
+```
+
+Project-specific data cleaning
+```{r}
+data$CONNECTION_social_num_coworkers_and_classmates_p7d_grouped[is.na(data$CONNECTION_social_num_coworkers_and_classmates_p7d_grouped) & data$DEMO_student=="No" & data$WORK_hours_per_week==0] <- "None (0 People)"
+data$CONNECTION_social_time_coworkers_and_classmates_p7d_grouped[is.na(data$CONNECTION_social_time_coworkers_and_classmates_p7d_grouped) & data$DEMO_student=="No" & data$WORK_hours_per_week==0] <- "No time"
+data$CONNECTION_social_days_coworkers_and_classmates_p7d_grouped[is.na(data$CONNECTION_social_days_coworkers_and_classmates_p7d_grouped) & data$DEMO_student=="No" & data$WORK_hours_per_week==0] <- "None (0 Days)"
+```
+
+Step 2. Identifying variables 
+
+In the dataset we have a series of variables capturing patterns of social connection:
+
+•	CONNECTION_activities_...
+•	CONNECTION_social_num_...
+•	CONNECTION_social_time_...
+•	CONNECTION_social_days_...
+
+
+These variables are part of the **core survey**, and some appear in both the **cross-section** and **cohort** datasets.
+
+### CONNECTION_activities Suffixes
+
+There are three suffixes used for the `CONNECTION_activities` variables:
+
+- **`_last`**  
+  - **Question:** *"When was the last time you..."*  
+  - **Applies to:** 2022 cross-section only
+
+- **`_p3m`**  
+  - **Question:** *"In the PAST THREE MONTHS, how often have you..."*  
+  - **Applies to:** All other datasets
+
+- **`_pm`**  
+  - **Derived variable**  
+  - **Purpose:** Attempts to capture both `_last` and `_p3m` within the **past month**  
+  - **Values:** `"Yes"` | `"No"`
+
+### Response Interpretation
+
+- **"Yes" includes:**
+  - For `_last`:  
+    *"In the past... month, two weeks, week, 2 or 3 days, yesterday, earlier today"*
+  - For `_p3m`:  
+    *"A few times a month, monthly, weekly, a few times a week, daily"*
+
+- **"No" includes:**
+  - For `_last`:  
+    *"Not in the past three months, one to three months ago"*
+  - For `_p3m`:  
+    *"Not in the past three months, Less than monthly"*
+
+
+We used whether or not the activity occurred in the past month ("_pm") for cross-sectional analysis, but cohort analysis can use more granular data ("_p3m") and more variables.
+
+```{r}
+activities_last_month <- data %>% select(starts_with("CONNECTION_activities") & ends_with("_pm")) %>% colnames()
+
+activities_past_three_months<- data %>% select(starts_with("CONNECTION_activities") & ends_with("_p3m")) %>% colnames()
+activities_last <- data %>% select(starts_with("CONNECTION_activities") & ends_with("_last")) %>% colnames()
+
+
+all_activities <- which_datasets_group(data %>% select(starts_with("CONNECTION_activities") & -ends_with("_num")) %>% colnames())
+activities_var_use <- which_datasets_group(activities_last_month)
+
+# Selecting activities that appear in all data frames
+activities_vars <- activities_var_use %>% filter(if_all(2:8, ~ .x == "TRUE")) %>% select(variable_name) %>% unlist() %>% as.vector()
+
+# Print activities in all data frames
+activities_vars
+
+# Print activities that are not included
+activities_last_month[!activities_last_month %in% activities_vars]
+```
+
+The issues with social number are similar.
+'How many close friends do you have?' is represented by the variable 'CONNECTION_social_num_close_friends_grouped'
+'Over the past three months, how many people belonging to each of the following categories have you spent time socializing with? Close friends' is represented by the variable 'CONNECTION_social_num_close_friends_p3m'
+
+Other variables that are similar but do not ask the same are 'CONNECTION_social_num_close_relationships' and 
+'CONNECTION_social_num_close_relationships_preference' asking about current and ideal number of friends and family members
+
+
+```{r}
+connections <- data %>% select(starts_with("CONNECTION_social_num")) %>% colnames() %>% sort()
+# connections[connections %>% stringr::str_ends("_grouped")]
+
+redundant_vars <- c("CONNECTION_social_num_close_friends_p3m", #exists as group
+                    "CONNECTION_social_num_coworkers_and_classmates_p7d", #combines two categories but as raw data
+                    "CONNECTION_social_num_coworkers_p7d",  #original variable
+                    "CONNECTION_social_num_classmates_p7d", #original variable
+                    "CONNECTION_social_num_family_p7d", #original variable
+                    "CONNECTION_social_num_friends_p7d", #original variable
+                    "CONNECTION_social_num_neighbours_p7d") #original variable
+
+social_num_var_use <- which_datasets_group(connections)
+# social_num_var_use %>% filter(!variable_name %in% redundant_vars) %>% View()
+
+# Variables in all datasets
+number_of_social_connections_vars <- social_num_var_use %>% filter(!variable_name %in% redundant_vars) %>%
+  filter(if_all(2:8, ~ .x == "TRUE")) %>% select(variable_name) %>% unlist() %>% as.vector()
+
+number_of_social_connections_vars
+```
+
+CONNECTION_social_time asks 'In the PAST WEEK, how many hours in total did you spend socializing with others from the following groups?'
+CONNECTION_social_days asks 'In the PAST WEEK, how many days did you spend at least 5 minutes socializing with people from the following groups?'
+
+They are virtually the same question, however, the answers are not necessarily consistent.
+
+
+
+```{r}
+social_time <- data %>% select(starts_with("CONNECTION_social_time"), starts_with("CONNECTION_social_days")) %>% colnames() %>% sort()
+# social_time[social_time %>% stringr::str_ends("_grouped")]
+red_vars <- c("CONNECTION_social_days_coworkers_and_classmates_p7d","CONNECTION_social_days_coworkers_p7d","CONNECTION_social_days_classmates_p7d","CONNECTION_social_days_family_p7d","CONNECTION_social_days_friends_p7d","CONNECTION_social_days_neighbours_p7d")
+red_vars <- c(red_vars, sub("_days_","_time_",red_vars))
+  
+social_time_var_use <- which_datasets_group(social_time)
+
+# social_time_var_use %>% filter(!variable_name %in% red_vars) %>% View()
+
+social_time_vars <- social_time_var_use %>% filter(!variable_name %in% red_vars) %>%
+  filter(if_all(2:8, ~ .x == "TRUE")) %>% select(variable_name) %>% unlist() %>% as.vector()
+
+social_time_vars
+
+df_temp <- data[social_time_vars]
+df_temp$consistent <- T
+for(i in 1:4){
+hours <-  social_time_vars[i+4]
+days <-  social_time_vars[i]
+df_temp$consistent[df_temp[days]=="None (0 Days)" & !is.na(df_temp[days]) & df_temp[hours] != "No time"] <- F
+}
+
+# 8.3% of respondents said they did not spend at least five minutes with one group and then reported at least 1 hour of time spent together in the last week.
+
+round(prop.table(table(df_temp$consistent)),2)
+```
+```{r}
+# Listing all variables from social activities and time spent together
+social_patterns_vars <- c(activities_last_month,number_of_social_connections_vars,social_time_vars)
+
+# Selecting outcomes from composite scales
+outcome_vars <- scale_data %>% slice(c(3:6,12,13,164)) %>% select(variable_categorical,variable_numeric) %>%  unlist()%>% na.omit() %>% as.vector()
+```
+
+
+```{r}
+# Participants identified as sexual or gender minorities at baseline, subsequent waves asked about trans identity and sexual orientation direclty
+which_datasets_group(c("DEMO_gender","DEMO_orientation","DEMO_gender_trans","DEMO_identity_lgbtq"))
+
+data$LGBTQ <- rep(FALSE, nrow(data))
+
+data$LGBTQ[data$DEMO_orientation %in% c("Gay or Lesbian", "Bisexual or Queer", "Asexual", "Questioning") & !is.na(data$DEMO_orientation)] <- TRUE
+data$LGBTQ[data$DEMO_gender_trans=="Yes" & !is.na(data$DEMO_gender_trans)] <- TRUE
+data$LGBTQ[data$DEMO_gender=="Non-binary" & !is.na(data$DEMO_gender)] <- TRUE
+data$LGBTQ[data$DEMO_identity_lgbtq=="Sexual or gender minorities (e.g., LGBTQ2+)" & !is.na(data$DEMO_identity_lgbtq)] <- TRUE
+data$LGBTQ[is.na(data$DEMO_orientation) & is.na(data$DEMO_gender_trans) & is.na(data$DEMO_gender) & is.na(data$DEMO_identity_lgbtq)] <- NA
+
+
+```
+Study 1. Cross-sectional data
+
+```{r}
+
+# Selecting cross sectional data and relevant variables, including demographic and geographic data
+cross <- data %>% filter(grepl("Cross",DATASET)) %>% select(LGBTQ,starts_with("DEMO_"),WORK_hours_per_week,starts_with("GEO_"),all_of(social_patterns_vars), all_of(outcome_vars),DATASET) %>% droplevels.data.frame()
+
+# Deleting empty columns
+cross <- cross %>% select(-all_of(names(cross)[colSums(is.na(cross)) == nrow(cross)]))
+
+# Identifying columns that do not appear in all waves 
+miss_cols <- c()
+for(i in levels(cross$DATASET)){
+  df <- cross %>% filter(DATASET==i)
+all_na_cols <- names(df)[colSums(is.na(df)) == nrow(df)]  
+miss_cols <- c(miss_cols,all_na_cols)
+}
+
+# Deleting columns that do not appear in all cross sections
+cross <- cross %>% select(-all_of(miss_cols)) 
+
+
+# 2240 participants (19.4%) did not provide information on gender or sexual orientation
+prop.table(table(cross$LGBTQ,useNA = "always"))
+```
+
+```{r}
+# Creating  the analytic file
+df <- cross
+df[df=="Presented but no response"] <- NA
+df <-df %>% filter(!is.na(LGBTQ)) %>% droplevels.data.frame() #excluding people that did not provide information about gender or sexual orientation
+
+
+#Reducing low cell counts
+levels(df$GEO_province)[levels(df$GEO_province) %in% c("Yukon", "Northwest Territories", "Nunavut")] <- "Territories"
+
+levels(df$DEMO_ethnicity)[levels(df$DEMO_ethnicity) %in% c("Chinese", "Japanese", "Korean")] <- "East Asian"
+levels(df$DEMO_ethnicity)[levels(df$DEMO_ethnicity) %in% c("Filipino", "Southeast Asian (e.g., Vietnamese, Cambodian, Laotian, Thai, etc.)")] <- "Southeast Asian"
+levels(df$DEMO_ethnicity)[levels(df$DEMO_ethnicity) %in% c("South Asian (e.g., East Indian, Pakistani, Sri Lankan, etc.)", "West Asian (e.g., Iranian, Afghan, etc.)")] <- "South Asian and West Asian"
+
+
+levels(df$DEMO_household_income)[21:25] <- "$150,000 to $199,999"
+levels(df$DEMO_household_income)[16:20] <- "$100,000 to $149,999" 
+levels(df$DEMO_household_income)[12:15] <- "$60,000 to $99,999"
+levels(df$DEMO_household_income)[9:11] <- "$40,000 to $59,999"
+levels(df$DEMO_household_income)[5:8] <- "$20,000 to $39,999"
+levels(df$DEMO_household_income)[1:4] <- "Under $20,000"
+
+df <- df %>% mutate(WORK_hours_per_week=factor(case_when(
+  WORK_hours_per_week==0 ~ "Unemployed",
+  WORK_hours_per_week<20 ~ "Works <20 h/week",
+  WORK_hours_per_week<=168 ~ "Works 20 h/week or more",
+  TRUE ~ NA
+)))
+
+# Creating categorical variables for age
+df <- df %>%
+  mutate(DEMO_age_group = factor(cut(
+    DEMO_age,
+    breaks = c(16, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, Inf),
+    labels = c(
+      "16–19", "20–24", "25–29", "30–34", "35–39",
+      "40–44", "45–49", "50–54", "55–59", "60–64", "65+"
+    ),
+    right = FALSE
+  ), ordered = T)) %>% relocate(DEMO_age_group, .after = DEMO_age)
+
+
+df <- df %>% mutate(DEMO_age_group_2=factor(case_when(
+  DEMO_age<30 ~ "< 30 years",
+  DEMO_age %in% c(30:59) ~ "30 to 59 years",
+  DEMO_age %in% c(60:100) ~ "60 and older",
+  TRUE ~ NA
+))) %>% relocate(DEMO_age_group_2, .after = DEMO_age_group)
+
+levels(df$DEMO_orientation)[levels(df$DEMO_orientation) %in% c("Asexual", "Questioning", "None")] <- "None of the above"
+
+df <- df %>% mutate(GEO_housing_household_size=factor(case_when(is.na(GEO_housing_household_size) ~ NA_character_,
+                                                                GEO_housing_household_size==0 ~ "Alone",
+                                                                GEO_housing_household_size==1 ~ "1 other person",
+                                                                TRUE ~ "2 other people or more"),levels = c("Alone", "1 other person", "2 other people or more"), ordered = T))
+
+# Deleting redundant variables and commute variables
+df <- df %>% select(-starts_with("GEO_commute"), -GEO_residence_canada, -ends_with("_y_n"))
+```
+
+Below we see the characteristics of participants missing outcome information, they are significantly younger that those who did provide outcome data, more likely to identify as "Man", ]to be single and dating, to identify as White, to be less educated, less likely to work full-time (provincial differences not reported).
+```{r}
+demo_vars <- colnames(df)[c(2:14)] #contains 3 variables for age
+# Looking at differences between those with and without missing data
+missing_outcome_table <- df %>% mutate(missing_outcome = is.na(LONELY_dejong_emotional_social_loneliness_scale_score)) %>% CreateTableOne(vars = demo_vars, strata = "missing_outcome", data = .)
+
+df <- df %>% filter(!is.na(LONELY_dejong_emotional_social_loneliness_scale_score))
+
+missing_outcome_table
+```
+
+
+```{r}
+main_outcome <- "LONELY_dejong_emotional_social_loneliness_scale_score"
+secondary_outcomes <- c("LONELY_dejong_emotional_loneliness_sub_scale_score", "LONELY_dejong_social_loneliness_sub_scale_score")
+adjust_vars <- c("WELLNESS_phq_score", "WELLNESS_gad_score")
+
+participants <- nrow(df)
+
+df <- df %>% dplyr::mutate(exposure = factor(case_when(
+  DEMO_gender=="Non-binary" ~ "Non-binary",
+  LGBTQ==T & DEMO_gender=="Woman"~ "2SLGBTQ+ Women",
+  LGBTQ==T & DEMO_gender=="Man" ~ "2SLGBTQ+ Men",
+  LGBTQ==F & DEMO_gender=="Man" ~ "Cis-Het Men",
+  LGBTQ==F & DEMO_gender=="Woman" ~ "Cis-Het Women",
+  TRUE ~ NA))) %>%  filter(!is.na(exposure))
+
+missing_intersecting_id <- participants-nrow(df) #mostly due to missing gender
+```
+
+# Plotting loneliness across the lifecourse
+
+```{r}
+p_load(ggplot2)
+
+emo_l <- ggplot(df, aes(x = as.numeric(DEMO_age_group), y = LONELY_dejong_emotional_loneliness_sub_scale_score, color = exposure, fill = exposure)) +
+  geom_smooth(se = F) +
+  ylab("Emotional Loneliness Score") +
+  xlab("Age Group") +
+  scale_x_continuous(breaks = 1:11, labels = levels(df$DEMO_age_group)) + 
+  theme_minimal() 
+
+social_l <- ggplot(df, aes(x = as.numeric(DEMO_age_group), y = LONELY_dejong_social_loneliness_sub_scale_score, color = exposure, fill = exposure)) +
+  geom_smooth(se = F) +
+  ylab("Social Loneliness Score") +
+  xlab("Age Group") +
+  scale_x_continuous(breaks = 1:11, labels = levels(df$DEMO_age_group)) + 
+  theme_minimal()
+
+p_load(patchwork)
+p3 <- emo_l +social_l+ plot_layout(nrow = 2)
+suppressWarnings(suppressMessages(print(p3))) 
+```
+
