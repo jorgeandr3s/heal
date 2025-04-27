@@ -65,6 +65,9 @@ Project-specific data cleaning
 data$CONNECTION_social_num_coworkers_and_classmates_p7d_grouped[is.na(data$CONNECTION_social_num_coworkers_and_classmates_p7d_grouped) & data$DEMO_student=="No" & data$WORK_hours_per_week==0] <- "None (0 People)"
 data$CONNECTION_social_time_coworkers_and_classmates_p7d_grouped[is.na(data$CONNECTION_social_time_coworkers_and_classmates_p7d_grouped) & data$DEMO_student=="No" & data$WORK_hours_per_week==0] <- "No time"
 data$CONNECTION_social_days_coworkers_and_classmates_p7d_grouped[is.na(data$CONNECTION_social_days_coworkers_and_classmates_p7d_grouped) & data$DEMO_student=="No" & data$WORK_hours_per_week==0] <- "None (0 Days)"
+
+data$WORK_hours_per_week[data$DEMO_unable_to_work=="Unable to work" & is.na(data$WORK_hours_per_week) & !is.na(data$DEMO_unable_to_work)] <- 0
+data$WORK_hours_per_week[data$DEMO_retired=="Retired" & is.na(data$WORK_hours_per_week) & !is.na(data$DEMO_retired)] <- 0
 ```
 
 Step 2. Identifying variables 
@@ -225,7 +228,7 @@ Study 1. Cross-sectional data
 ```{r}
 
 # Selecting cross sectional data and relevant variables, including demographic and geographic data
-cross <- data %>% filter(grepl("Cross",DATASET)) %>% select(LGBTQ,starts_with("DEMO_"),WORK_hours_per_week,starts_with("GEO_"),all_of(social_patterns_vars), all_of(outcome_vars),DATASET) %>% droplevels.data.frame()
+cross <- data %>% filter(grepl("Cross",DATASET)) %>% select(UNIQUE_id, LGBTQ,starts_with("DEMO_"),WORK_hours_per_week,starts_with("GEO_"),all_of(social_patterns_vars), all_of(outcome_vars),DATASET) %>% droplevels.data.frame()
 
 # Deleting empty columns
 cross <- cross %>% select(-all_of(names(cross)[colSums(is.na(cross)) == nrow(cross)]))
@@ -239,36 +242,28 @@ miss_cols <- c(miss_cols,all_na_cols)
 }
 
 # Deleting columns that do not appear in all cross sections
-cross <- cross %>% select(-all_of(miss_cols)) 
+cross <- cross %>% select(-all_of(miss_cols)) %>% select(-starts_with("GEO_commute"), -ends_with("_y_n"))
 
 
 # 2240 participants (19.4%) did not provide information on gender or sexual orientation
-prop.table(table(cross$LGBTQ,useNA = "always"))
+# table(cross$LGBTQ,useNA = "always")
+# prop.table(table(cross$LGBTQ,useNA = "always"))
 ```
 
 ```{r}
-# Creating  the analytic file
-df <- cross
-df[df=="Presented but no response"] <- NA
-df <-df %>% filter(!is.na(LGBTQ)) %>% droplevels.data.frame() #excluding people that did not provide information about gender or sexual orientation
+levels(cross$DEMO_ethnicity)[levels(cross$DEMO_ethnicity) %in% c("Chinese", "Japanese", "Korean")] <- "East Asian"
+levels(cross$DEMO_ethnicity)[levels(cross$DEMO_ethnicity) %in% c("Filipino", "Southeast Asian (e.g., Vietnamese, Cambodian, Laotian, Thai, etc.)")] <- "Southeast Asian"
+levels(cross$DEMO_ethnicity)[levels(cross$DEMO_ethnicity) %in% c("South Asian (e.g., East Indian, Pakistani, Sri Lankan, etc.)", "West Asian (e.g., Iranian, Afghan, etc.)")] <- "South Asian and West Asian"
+levels(cross$DEMO_ethnicity)[levels(cross$DEMO_ethnicity) %in% c("Arab", "None of the above")] <- "Other"
 
+levels(cross$DEMO_household_income)[21:25] <- "$150,000 to $199,999"
+levels(cross$DEMO_household_income)[16:20] <- "$100,000 to $149,999" 
+levels(cross$DEMO_household_income)[12:15] <- "$60,000 to $99,999"
+levels(cross$DEMO_household_income)[9:11] <- "$40,000 to $59,999"
+levels(cross$DEMO_household_income)[5:8] <- "$20,000 to $39,999"
+levels(cross$DEMO_household_income)[1:4] <- "Under $20,000"
 
-#Reducing low cell counts
-levels(df$GEO_province)[levels(df$GEO_province) %in% c("Yukon", "Northwest Territories", "Nunavut")] <- "Territories"
-
-levels(df$DEMO_ethnicity)[levels(df$DEMO_ethnicity) %in% c("Chinese", "Japanese", "Korean")] <- "East Asian"
-levels(df$DEMO_ethnicity)[levels(df$DEMO_ethnicity) %in% c("Filipino", "Southeast Asian (e.g., Vietnamese, Cambodian, Laotian, Thai, etc.)")] <- "Southeast Asian"
-levels(df$DEMO_ethnicity)[levels(df$DEMO_ethnicity) %in% c("South Asian (e.g., East Indian, Pakistani, Sri Lankan, etc.)", "West Asian (e.g., Iranian, Afghan, etc.)")] <- "South Asian and West Asian"
-
-
-levels(df$DEMO_household_income)[21:25] <- "$150,000 to $199,999"
-levels(df$DEMO_household_income)[16:20] <- "$100,000 to $149,999" 
-levels(df$DEMO_household_income)[12:15] <- "$60,000 to $99,999"
-levels(df$DEMO_household_income)[9:11] <- "$40,000 to $59,999"
-levels(df$DEMO_household_income)[5:8] <- "$20,000 to $39,999"
-levels(df$DEMO_household_income)[1:4] <- "Under $20,000"
-
-df <- df %>% mutate(WORK_hours_per_week=factor(case_when(
+cross <- cross %>% mutate(WORK_hours_per_week=factor(case_when(
   WORK_hours_per_week==0 ~ "Unemployed",
   WORK_hours_per_week<20 ~ "Works <20 h/week",
   WORK_hours_per_week<=168 ~ "Works 20 h/week or more",
@@ -276,7 +271,7 @@ df <- df %>% mutate(WORK_hours_per_week=factor(case_when(
 )))
 
 # Creating categorical variables for age
-df <- df %>%
+cross <- cross %>%
   mutate(DEMO_age_group = factor(cut(
     DEMO_age,
     breaks = c(16, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, Inf),
@@ -288,93 +283,118 @@ df <- df %>%
   ), ordered = T)) %>% relocate(DEMO_age_group, .after = DEMO_age)
 
 
-df <- df %>% mutate(DEMO_age_group_2=factor(case_when(
+cross <- cross %>% mutate(DEMO_age_group_2=factor(case_when(
   DEMO_age<30 ~ "< 30 years",
   DEMO_age %in% c(30:59) ~ "30 to 59 years",
   DEMO_age %in% c(60:100) ~ "60 and older",
   TRUE ~ NA
 ))) %>% relocate(DEMO_age_group_2, .after = DEMO_age_group)
 
-levels(df$DEMO_orientation)[levels(df$DEMO_orientation) %in% c("Asexual", "Questioning", "None")] <- "None of the above"
+levels(cross$DEMO_orientation)[levels(cross$DEMO_orientation) %in% c("Asexual", "Questioning", "None")] <- "None of the above"
 
-df <- df %>% mutate(GEO_housing_household_size=factor(case_when(is.na(GEO_housing_household_size) ~ NA_character_,
+levels(cross$DEMO_relationship_status)[levels(cross$DEMO_relationship_status)=="Single and dating"] <- "In a relationship"
+
+levels(cross$GEO_province)[levels(cross$GEO_province) %in% c("Yukon", "Northwest Territories", "Nunavut")] <- "Territories"
+
+cross <- cross %>% mutate(GEO_housing_household_size=factor(case_when(is.na(GEO_housing_household_size) ~ NA_character_,
                                                                 GEO_housing_household_size==0 ~ "Alone",
                                                                 GEO_housing_household_size==1 ~ "1 other person",
                                                                 TRUE ~ "2 other people or more"),levels = c("Alone", "1 other person", "2 other people or more"), ordered = T))
 
-# Deleting redundant variables and commute variables
-df <- df %>% select(-starts_with("GEO_commute"), -GEO_residence_canada, -ends_with("_y_n"))
-```
-
-Below we see the characteristics of participants missing outcome information, they are significantly younger that those who did provide outcome data, more likely to identify as "Man", ]to be single and dating, to identify as White, to be less educated, less likely to work full-time (provincial differences not reported).
-```{r}
-demo_vars <- colnames(df)[c(2:14)] #contains 3 variables for age
-# Looking at differences between those with and without missing data
-missing_outcome_table <- df %>% mutate(missing_outcome = is.na(LONELY_dejong_emotional_social_loneliness_scale_score)  | is.na(LONELY_dejong_emotional_loneliness_sub_scale_score) | is.na(LONELY_dejong_social_loneliness_sub_scale_score)) %>% CreateTableOne(vars = demo_vars, strata = "missing_outcome", data = .)
-
-df <- df %>% filter(!is.na(LONELY_dejong_emotional_social_loneliness_scale_score) & !is.na(LONELY_dejong_emotional_loneliness_sub_scale_score) & !is.na(LONELY_dejong_social_loneliness_sub_scale_score))
-
-missing_outcome_table
-```
-
-
-```{r}
-main_outcome <- "LONELY_dejong_emotional_social_loneliness_scale_score"
-secondary_outcomes <- c("LONELY_dejong_emotional_loneliness_sub_scale_score", "LONELY_dejong_social_loneliness_sub_scale_score")
-adjust_vars <- c("WELLNESS_phq_score", "WELLNESS_gad_score")
-
-participants <- nrow(df)
-
-df <- df %>% dplyr::mutate(exposure = factor(case_when(
+cross <- cross %>% dplyr::mutate(DEMO_gender_so = factor(case_when(
   DEMO_gender=="Non-binary" ~ "Non-binary",
   LGBTQ==T & DEMO_gender=="Woman"~ "2SLGBTQ+ Women",
   LGBTQ==T & DEMO_gender=="Man" ~ "2SLGBTQ+ Men",
   LGBTQ==F & DEMO_gender=="Man" ~ "Cis-Het Men",
   LGBTQ==F & DEMO_gender=="Woman" ~ "Cis-Het Women",
-  TRUE ~ NA))) %>%  filter(!is.na(exposure))
+  TRUE ~ NA))) %>% select(-DEMO_gender,-DEMO_orientation, -LGBTQ) %>% relocate(DEMO_gender_so, .before = DEMO_ethnicity) %>% droplevels.data.frame()
 
-missing_intersecting_id <- participants-nrow(df) #mostly due to missing gender
 ```
 
-# Plotting loneliness across the lifecourse
 
 ```{r}
-p_load(ggplot2)
+demo_vars <- colnames(cross)[c(2,5:14)] #contains 3 variables for age
+# Looking at differences between those with and without missing data
+cross <- cross %>% mutate(missing_outcome =  is.na(LONELY_dejong_emotional_loneliness_sub_scale_score) | is.na(LONELY_dejong_social_loneliness_sub_scale_score)) 
+#%>% 
+#  mutate(missing_exposure = is.na(LGBTQ) | DEMO_gender=="Presented but no response" | DEMO_orientation=="Presented but no response" |is.na(DEMO_gender) | is.na(DEMO_orientation))
+# missing_data_table <- cross %>% mutate(missing=missing_exposure==T | missing_outcome==T) %>% CreateTableOne(vars = c(demo_vars,"missing_outcome"), strata = "missing", data = ., includeNA = F)
 
-emo_l <- ggplot(df, aes(x = as.numeric(DEMO_age_group), y = LONELY_dejong_emotional_loneliness_sub_scale_score, color = exposure, fill = exposure)) +
-  geom_smooth(se = F) +
-  ylab("Emotional Loneliness Score") +
-  xlab("Age Group") +
-  scale_x_continuous(breaks = 1:11, labels = levels(df$DEMO_age_group)) + 
-  theme_minimal() 
+missing_data_table <- cross %>% CreateTableOne(vars = demo_vars, strata = "missing_outcome", data = ., includeNA = F)
 
-social_l <- ggplot(df, aes(x = as.numeric(DEMO_age_group), y = LONELY_dejong_social_loneliness_sub_scale_score, color = exposure, fill = exposure)) +
-  geom_smooth(se = F) +
-  ylab("Social Loneliness Score") +
-  xlab("Age Group") +
-  scale_x_continuous(breaks = 1:11, labels = levels(df$DEMO_age_group)) + 
-  theme_minimal()
+missing_data_table
+tab_csv <- print(missing_data_table, printToggle = FALSE)
+write.csv(tab_csv, file = here("cscs","patterns_social_connection","cscs_cross_2025_missing_outcome.csv"))
 
-p_load(patchwork)
-p3 <- emo_l +social_l+ plot_layout(nrow = 2)
-suppressWarnings(suppressMessages(print(p3))) 
+# missing_outcome_table_2 <- cross %>% filter(missing_exposure==F) %>% CreateTableOne(vars = c(demo_vars), strata = "missing_outcome", data = ., includeNA = F)
+# missing_outcome_table_2
+
+
 ```
+
+```{r}
+# Creating  the analytic file
+df <- cross
+df[df=="Presented but no response"] <- NA
+# df <-df %>% filter(missing_exposure==F & missing_outcome==F) %>% droplevels.data.frame() %>% select(-starts_with("missing_"),-GEO_residence_canada) 
+
+df <-df %>% filter(missing_outcome==F) %>% droplevels.data.frame() %>% select(-starts_with("missing_"),-GEO_residence_canada) #GEO_residence_canada is excluded due to all being Canadian
+```
+
+Below we see the characteristics of participants missing outcome information, they are significantly younger that those who did provide outcome data, more likely to identify as "Man", ]to be single and dating, to identify as White, to be less educated, less likely to work full-time (provincial differences not reported).
+
+```{r}
+descr_tab <- df %>% CreateTableOne(vars = c(demo_vars, "LONELY_dejong_emotional_loneliness_sub_scale_score",
+"LONELY_dejong_social_loneliness_sub_scale_score","WELLNESS_phq_score","WELLNESS_gad_score","WELLNESS_life_satisfaction_num"), strata = "DATASET", data = ., includeNA = F, test = F, addOverall = T)
+
+tab_1_csv <- print(descr_tab, printToggle = FALSE)
+write.csv(tab_1_csv, file = here("cscs","patterns_social_connection","cscs_cross_2025_t1.csv"))
+```
+
 
 # Dealing with Missing Data 
 ```{r}
 # Imputation
-if(file.exists(file = here("cscs","public_data","cscs_cross_2025_imputed.RDS"))){
-  df_imputed <- readRDS(here("cscs","public_data","cscs_cross_2025_imputed.RDS"))} else {
-    df_temp <- df %>% select(-DEMO_age_group,-DEMO_age_group_2, -exposure, -LGBTQ)
+
+missing_info <- DataExplorer::profile_missing(df)
+#View(missing_info)
+if(file.exists(file = here("cscs","patterns_social_connection","cscs_cross_2025_imputed.RDS"))){
+  df_imputed <- readRDS(here("cscs","patterns_social_connection","cscs_cross_2025_imputed.RDS"))} else {
+    
+    p_load(parallel)
+    p_load(doParallel)  
+    p_load(foreach) 
+    total_cores <- detectCores()
+    used_cores <- floor(0.75 * total_cores)
+    cl <- makeCluster(used_cores)
+    registerDoParallel(cl)
+    
+    df_temp <- df %>% select(-DEMO_age_group,-DEMO_age_group_2, -UNIQUE_id)
+    #naniar::mcar_test(df_temp) p is 1, listwise deletion is recommended
+    #Among those with outcome, missing data is MCAR
 
     p_load(missForest)
-    df_imputed <- missForest(df_temp)$ximp
-    df_imputed[c("DEMO_age_group", "DEMO_age_group_2", "exposure", "LGBTQ")] <- df[c("DEMO_age_group", "DEMO_age_group_2", "exposure", "LGBTQ")]
-    saveRDS(df_imputed, file = here("cscs","public_data","cscs_cross_2025_imputed.RDS"))}
+    set(986) #added later OOB might change slightly
+    miss_df <- missForest(df_temp, verbose=T,parallelize = "forests", variablewise = T)
+    mean(miss_df$OOBerror[11:39]) #PFC
+    mean(sqrt(miss_df$OOBerror[43])/6,sqrt(miss_df$OOBerror[44])/6, sqrt(miss_df$OOBerror[45])/9) #NRMSE
+    
+    df_imputed <- miss_df$ximp
+    df_imputed[c("DEMO_age_group", "DEMO_age_group_2")] <- df[c("DEMO_age_group", "DEMO_age_group_2")]
+    saveRDS(df_imputed, file = here("cscs","patterns_social_connection","cscs_cross_2025_imputed.RDS"))
+    stopCluster(cl)
+    }
 
 # Listwise deletion
-df_complete_cases <- df %>% filter(complete.cases(.))
+ids_complete <- df %>% select(UNIQUE_id, starts_with("CONNECTION_"), starts_with("WELLNESS_"), starts_with("LONELY_")) %>%  filter(complete.cases(.)) %>% select(UNIQUE_id) %>% unlist() %>%  as.vector()
+
+df_complete_cases <- df %>% filter(UNIQUE_id %in% ids_complete)
+
+#num_vars <- df_complete_cases %>% select(starts_with("CONNECTION_"), starts_with("WELLNESS_"), starts_with("LONELY_")) %>%  colnames()
+#cross %>% select(all_of(num_vars)) %>% naniar::mcar_test()
+#MCAR
 ```
+
 
 # Reducing data dimensionality
 Clustering activities
@@ -384,60 +404,121 @@ activities_mca <- MCA(df_imputed[activities_vars], graph = F)
 coords <- activities_mca$var$coord
 
 p_load(factoextra)
+fviz_screeplot(activities_mca, addlabels = TRUE, ylim = c(0, 50))
 fviz_nbclust(activities_mca$var$coord, kmeans, method = "wss")
 fviz_nbclust(activities_mca$var$coord, kmeans, method = "silhouette") #optimal kmeans is 3
-kmeans_result <- kmeans(coords, centers = 3)
+#kmeans_result <- kmeans(coords, centers = 4) #based on conceptual analysis
 
-cluster1 <- names(kmeans_result$cluster[kmeans_result$cluster==1])
-cluster2 <- names(kmeans_result$cluster[kmeans_result$cluster==2])
-#names(kmeans_result$cluster[kmeans_result$cluster==3]) # ALL marked as no
+reduced_activities <- as.data.frame(activities_mca$ind$coord) %>% select(1:4)
+colnames(reduced_activities) <- c("activity_avoidance", "activity_social", "activity_physical_intimacy", "activity_emotional_intimacy")
+df_imputed <-  cbind(df_imputed,reduced_activities)
 
-cluster1 <- sub("_Yes","",cluster1)
-cluster2 <- sub("_Yes","",cluster2)
+# CompleteCASES
+activities_mca_cc <- MCA(df_complete_cases[activities_vars], graph = F)
+coords_cc <- activities_mca_cc$var$coord
+reduced_activities_cc <- as.data.frame(activities_mca_cc$ind$coord) %>% select(1:4)
+colnames(reduced_activities_cc) <- colnames(reduced_activities)
+df_complete_cases <-  cbind(df_complete_cases,reduced_activities_cc) %>% select(-all_of(activities_vars))
+
+
 ```
 
 Clustering social patterns
 ```{r}
-df_simplified <- df_imputed %>%
-  mutate(
-    intimate_activities = rowSums(across(all_of(cluster1), ~ .x == "Yes")),
-    other_activities = rowSums(across(all_of(cluster2), ~ .x == "Yes"))) %>% select(-all_of(activities_vars), -LGBTQ, -exposure, -DEMO_age,-DEMO_age_group)
-df_simplified[11:23] <- lapply(df_simplified[11:23], as.numeric)
-pca_social_patterns <- prcomp(df_simplified[11:23],center = TRUE,scale. = T)
+patterns <- df_imputed %>% select(starts_with("CONNECTION_social")) %>% colnames()
+df_imputed[patterns] <- lapply(df_imputed[patterns], as.numeric)
+
+psych::KMO(df_imputed[patterns])
+psych::cortest.bartlett(cor(df_imputed[patterns]), n = nrow(df_imputed))
+
+pca_social_patterns <- prcomp(df_imputed[patterns],center = TRUE,scale. = T)
 summary(pca_social_patterns)
 
 #Eigenvalues
-pca_social_patterns$sdev^2 
+(pca_social_patterns$sdev[pca_social_patterns$sdev^2 >=1])^2
 #First 4 components explain up to 74% of the variance.
 pca_scores <- as.data.frame(pca_social_patterns$x[, 1:4])
 loadings <- pca_social_patterns$rotation[, 1:4]
-View(loadings)
-factors_social_pattern <- c("family_friends","neighbours_coworkers", "friends_neighbours", "neighbours_family")
-df_simplified[factors_social_pattern] <- pca_scores
-df_simplified <- df_simplified %>% select(-c(11:23))
+# View(loadings)
+colnames(pca_scores) <- c("social_disconnection", "casual_socialization", "friend_oriented", "family_oriented") 
+df_imputed <- cbind(df_imputed,pca_scores) 
+loadings %>% clipr::write_clip()
+
+# CompleteCASES
+df_complete_cases[patterns] <- lapply(df_complete_cases[patterns], as.numeric)
+pca_social_patterns_cc <- prcomp(df_complete_cases[patterns],center = TRUE,scale. = T)
+pca_scores_cc <- as.data.frame(pca_social_patterns_cc$x[, 1:4])
+loadings_cc <- pca_social_patterns_cc$rotation[, 1:4]
+colnames(pca_scores_cc) <- colnames(pca_scores) 
+df_complete_cases <- cbind(df_complete_cases,pca_scores_cc) %>% select(-all_of(patterns)) 
+
 
 ```
-
-Separating outcomes for loneliness dimensions
+Creating a simplified numeric dataset
 ```{r}
-colnames(df_simplified) <- sub("DEMO_","",colnames(df_simplified))
-colnames(df_simplified) <- sub("GEO_","",colnames(df_simplified))
-colnames(df_simplified) <- sub("LONELY_","",colnames(df_simplified))
-colnames(df_simplified) <- sub("CONNECTION_social_","",colnames(df_simplified))
+df_simplified <- df_imputed %>% select(all_of(c(colnames(pca_scores), colnames(reduced_activities))), ends_with("sub_scale_score"), starts_with("WELLNESS"))
+
+##################  COMPLETE CASES  ##################
+# df_simplified_cc <- df_complete_cases %>% select(all_of(colnames(df_simplified)))
+######################################################
+
+colnames(df_simplified) <- sub("LONELY_dejong_","",colnames(df_simplified))
+colnames(df_simplified) <- sub("_sub_scale_score","",colnames(df_simplified))
 colnames(df_simplified) <- sub("WELLNESS_","",colnames(df_simplified))
+colnames(df_simplified) <- sub("_num","",colnames(df_simplified))
 
-df_simplified$social_loneliness <- factor(df_simplified$dejong_social_loneliness_sub_scale_score,
-                    levels = c(0, 1, 2, 3),
-                    labels = c("class0", "class1", "class2", "class3"))
+##################  COMPLETE CASES  ##################
+# colnames(df_simplified_cc) <- colnames(df_simplified)
+# corp_cc <- plot_correlation(df_simplified_cc)
+######################################################
 
-df_simplified$emotional_loneliness <- factor(df_simplified$dejong_emotional_loneliness_sub_scale_score,
-                    levels = c(0, 1, 2, 3),
-                    labels = c("class0", "class1", "class2", "class3"))
+corp <- plot_correlation(df_simplified)
+ggsave(here("cscs","patterns_social_connection","cscs_cross_2025_correlation_plot.png"), plot = corp, width = 3000, height = 3000, units = "px", dpi = 300)
 
-df_simplified$dejong_emotional_social_loneliness_scale_score <- NULL
-df_simplified$dejong_emotional_loneliness_sub_scale_score <- NULL
-df_simplified$dejong_social_loneliness_sub_scale_score <- NULL
+p_load(bnlearn)
+
+strenght <- boot.strength(df_simplified, R=500, algorithm = "hc") #misspelling to avoid functions
+avg_bn <- averaged.network(strenght, threshold = 0.85)
+
+##################  COMPLETE CASES  ##################
+# cc_boot <- boot.strength(df_simplified_cc, R=500, algorithm = "hc") 
+# cc_avg_bn <- averaged.network(cc_boot, threshold = 0.85)
+######################################################
+
+##################  COMBINED DATASETS  ##################
+# cc_boot_all <- rbind(cc_boot, strenght)
+# avg_all <- averaged.network(cc_boot_all, threshold = 0.85)
+# graphviz.plot(avg_bn)
+# graphviz.plot(cc_avg_bn)
+# graphviz.plot(avg_all)
+########################################################
+
+fitted_model <- bn.fit(avg_bn,data = df_simplified)
+arcs_neg <- matrix(ncol=2)
+colnames(arcs_neg) <- c("Var1", "Var2")
+for(i in c(1:13)){
+  node <- fitted_model[[i]]$node
+  coeff <- fitted_model[[i]]$coefficients[fitted_model[[i]]$coefficients <0]
+  
+x <- expand.grid(names(coeff)[names(coeff) != "(Intercept)"],node)
+arcs_neg <- rbind(arcs_neg,x)
+}
+arcs_neg <- arcs_neg[-1,]
+colnames(arcs_neg) <- c("from", "to")
+p_load(BiocManager)
+p_load(Rgraphviz)
+
+
+png(here("cscs","patterns_social_connection","cscs_cross_2025_dag_plot.png"), width = 800, height = 800, units = "px", res = 300)
+graphviz.plot(fitted_model, highlight = list(arcs=as.matrix(arcs_neg), nodes=c("emotional_loneliness", "social_loneliness")))
+dev.off()
+
+fitted_model$emotional_loneliness
+fitted_model$social_loneliness
+
 ```
+
+END OF CODE IN THE PAPER 
 
 # Variable selection through random forest
 ```{r}
@@ -451,42 +532,96 @@ emotional_loneliness_vars <- Boruta(emotional_loneliness ~ .,
                         data = df_simplified %>% select(-social_loneliness),
                         doTrace = 0,
                         maxRuns = 50)
+
 ```
 
+A blacklist of directional constraints was defined a priori to prevent implausible or non-causal arcs. Specifically, we disallowed edges pointing from modifiable or behavioral variables to demographic variables assumed to be determined at birth (e.g., age group and ethnicity), and restricted reciprocal arcs between some demographic variables. Additional constraints were applied to prevent behavioral or psychosocial predictors from being modeled as causes of gender identity or sexual orientation.  
 
-# DAG creation
 ```{r}
-p_load(bnlearn)
 
-df_simplified <- df_simplified %>% select(-DATASET)
-born_with <- c("age_group_2", "gender", "orientation", "ethnicity")
-other_vars <- colnames(df_simplified)[!colnames(df_simplified) %in% born_with]
+df_factor <- df_imputed %>% select(-starts_with("CONNECTION_"), -exposure, -LGBTQ, ,-LONELY_dejong_emotional_social_loneliness_scale_score, -DEMO_age,-DEMO_age_group_2, -GEO_province, -DATASET)
 
-blacklist <- expand.grid(
-  from = other_vars,
-  to = c("age_group_2", "ethnicity")
+
+for (var in colnames(df_factor)[16:23]){
+df_factor[[var]] <- scales::rescale(df_factor[[var]], to = c(-2, 2))
+df_factor[[var]] <- factor(round(df_factor[[var]]), ordered = T)
+}
+
+for (var in c("WELLNESS_phq_score","WELLNESS_gad_score","WELLNESS_life_satisfaction_num")){
+df_factor[[var]] <- scales::rescale(df_factor[[var]], to = c(0, 6))
+df_factor[[var]] <- factor(round(df_factor[[var]]), ordered = T)
+}
+
+born_with_factor <- c("DEMO_age_group", "DEMO_ethnicity") # "gender" and "orientation" are not included because we assumed other variables influence reporting
+other_vars_factor <- colnames(df_factor)[!colnames(df_factor) %in% born_with_factor]
+
+blacklistf <- expand.grid(
+  from = other_vars_factor,
+  to = born_with_factor
 )
 
-blacklist <- rbind(blacklist, expand.grid(
-  from = born_with,
-  to = born_with
+blacklistf <- rbind(blacklistf, expand.grid(
+  from = born_with_factor,
+  to = born_with_factor
 ))
-# Learn DAG with Hill-Climbing (score-based)
-dag_hc <- hc(df_simplified,blacklist = blacklist)
 
- 
+not_demo_vars <- df_factor %>% select(-starts_with("DEMO")) %>% colnames()
+
+blacklistf <- rbind(blacklistf, expand.grid(
+  from = c(not_demo_vars,"DEMO_relationship_status"),
+  to = c("DEMO_gender", "DEMO_orientation")
+))
 
 
+df_factor <-  as.data.frame(lapply(df_factor, function(x) {
+  if (is.numeric(x)) as.factor(x) else x
+}))
+
+BN_500 <- boot.strength(df_factor, R=500, algorithm = "hc", algorithm.args = list(blacklist=blacklistf))
+avg_factor <- averaged.network(BN_500, threshold = 0.85)
+
+dag_factor <- hc(df_factor,blacklist = blacklistf, score = "bic")
+arc_factor <- arc.strength(dag_factor, data = df_factor, criterion = "bic")
 # Plot the result
-p_load(BiocManager)
-p_load(Rgraphviz)
-graphviz.plot(dag_hc)
 
+graphviz.plot(dag_factor, fontsize = 20)
+fitted_model_factor <- bn.fit(dag_factor, df_factor)
+fitted_model_factor$LONELY_dejong_emotional_loneliness_sub_scale_score
+fitted_model_factor$LONELY_dejong_social_loneliness_sub_scale_score
+```
+```{r}
+library(reshape2)
 
-strength <- arc.strength(dag_hc, data = df_simplified)
-strength %>% View()
+# Extract the CPT
+cpt <- fitted_model_factor$LONELY_dejong_social_loneliness_sub_scale_score$prob
+
+# Convert to data.frame
+df_cpt <- as.data.frame(as.table(cpt))
+df_cpt2 <- fitted_model_factor$LONELY_dejong_emotional_loneliness_sub_scale_score$prob %>% as.data.frame()
+
+# Rename for clarity
+colnames(df_cpt) <- c("Social_Loneliness", "Life_Satisfaction", "Activity_Avoidance", "Probability")
+
+colnames(df_cpt2)<- c("Emotional_Loneliness", "Age_group", "Probability") 
+# Plot as heatmap
+
+plot_sl <- ggplot(df_cpt, aes(x = Life_Satisfaction, y = Activity_Avoidance, fill = Probability)) +
+  geom_tile(color = "white") +
+  facet_wrap(~ Social_Loneliness) +
+  scale_fill_viridis_c() +
+  theme_minimal() +
+  labs(title = "Conditional probabilities of Social Loneliness")
+
+plot_el <- ggplot(df_cpt2, aes(x = Age_group, y = Emotional_Loneliness, fill = Probability)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis_c() +
+  theme_minimal() +
+  labs(title = "Conditional probabilities of Emotional Loneliness")
 
 ```
+
+
+
 
 #Optional RANDOM FOREST direct analysis
 ```{r eval=FALSE, include=TRUE}
@@ -534,5 +669,53 @@ emo_imp_vars$Include <- ifelse(emo_imp_vars$Overall >=(max(emo_imp_vars$Overall)
 
 ```
 
+# PCA with p3m
+```{r}
+p3m_vars <- which_datasets_group(activities_past_three_months) %>% filter(baseline==T & cross23==T & cross24==T) %>% select(variable_name) %>% unlist() %>%  as.vector()
 
+tdf <- data %>% filter(grepl("Cross",DATASET)) %>% select(all_of(p3m_vars)) %>% filter(complete.cases(.))
+ttdf <- tdf
+for (var in colnames(tdf)){
+  levels(tdf[[var]])[levels(tdf[[var]])=="Presented but no response"] <- NA
+  tdf[[var]] <- as.numeric(tdf[[var]])
+}
 
+table(tdf[[1]])
+table(ttdf[[1]])
+tdf <- tdf %>% filter(complete.cases(.))
+colnames(tdf) <- sub("CONNECTION_activities_","",colnames(tdf))
+colnames(tdf) <- sub("_p3m","",colnames(tdf))
+
+pca_p3m <- prcomp(tdf,center = TRUE,scale. = T)
+summary(pca_p3m)
+#Eigenvalues
+pca_p3m$sdev^2 # 3 meaningful components per the K1 rule  
+#First 3 components explain up to 53.7% of the variance. Fourth component explains an extra 4.9%
+
+p3m_scores <- as.data.frame(pca_p3m$x[, 1:4])
+p3m_loadings <- pca_p3m$rotation[, 1:4]
+View(p3m_loadings)
+```
+
+# Plotting loneliness across the lifecourse
+```{r}
+p_load(ggplot2)
+
+emo_l <- ggplot(df, aes(x = as.numeric(DEMO_age_group), y = LONELY_dejong_emotional_loneliness_sub_scale_score, color = exposure, fill = exposure)) +
+  geom_smooth(se = F) +
+  ylab("Emotional Loneliness Score") +
+  xlab("Age Group") +
+  scale_x_continuous(breaks = 1:11, labels = levels(df$DEMO_age_group)) + 
+  theme_minimal() 
+
+social_l <- ggplot(df, aes(x = as.numeric(DEMO_age_group), y = LONELY_dejong_social_loneliness_sub_scale_score, color = exposure, fill = exposure)) +
+  geom_smooth(se = F) +
+  ylab("Social Loneliness Score") +
+  xlab("Age Group") +
+  scale_x_continuous(breaks = 1:11, labels = levels(df$DEMO_age_group)) + 
+  theme_minimal()
+
+p_load(patchwork)
+p3 <- emo_l +social_l+ plot_layout(nrow = 2)
+suppressWarnings(suppressMessages(print(p3))) 
+```
