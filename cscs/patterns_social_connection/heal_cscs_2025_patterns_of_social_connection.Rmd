@@ -21,6 +21,7 @@ p_load(DataExplorer)
 p_load(tableone)
 
 load(here("cscs","public_data","CSCS2025_full_cleaned_deidentified_data_and_metadata.RData"))
+set.seed(986)
 
 ```
 
@@ -117,23 +118,12 @@ There are three suffixes used for the `CONNECTION_activities` variables:
 We used whether or not the activity occurred in the past month ("_pm") for cross-sectional analysis, but cohort analysis can use more granular data ("_p3m") and more variables.
 
 ```{r}
-activities_last_month <- data %>% select(starts_with("CONNECTION_activities") & ends_with("_pm")) %>% colnames()
+# activities_last_month <- data %>% select(starts_with("CONNECTION_activities") & ends_with("_pm")) %>% colnames()
 
-activities_past_three_months<- data %>% select(starts_with("CONNECTION_activities") & ends_with("_p3m")) %>% colnames()
-activities_last <- data %>% select(starts_with("CONNECTION_activities") & ends_with("_last")) %>% colnames()
+activities_past_three_months<- data %>% dplyr::select(starts_with("CONNECTION_activities") & ends_with("_p3m")) %>% colnames()
 
 
-all_activities <- which_datasets_group(data %>% select(starts_with("CONNECTION_activities") & -ends_with("_num")) %>% colnames())
-activities_var_use <- which_datasets_group(activities_last_month)
-
-# Selecting activities that appear in all data frames
-activities_vars <- activities_var_use %>% filter(if_all(2:8, ~ .x == "TRUE")) %>% select(variable_name) %>% unlist() %>% as.vector()
-
-# Print activities in all data frames
-activities_vars
-
-# Print activities that are not included
-activities_last_month[!activities_last_month %in% activities_vars]
+activities_vars <- which_datasets_group(activities_past_three_months) %>% select(-cross22) %>% filter(if_all(2:7, ~ .x == "TRUE")) %>% select(variable_name) %>% unlist() %>% as.vector()
 ```
 
 The issues with social number are similar.
@@ -200,14 +190,6 @@ df_temp$consistent[df_temp[days]=="None (0 Days)" & !is.na(df_temp[days]) & df_t
 
 round(prop.table(table(df_temp$consistent)),2)
 ```
-```{r}
-# Listing all variables from social activities and time spent together
-social_patterns_vars <- c(activities_last_month,number_of_social_connections_vars,social_time_vars)
-
-# Selecting outcomes from composite scales
-outcome_vars <- scale_data %>% slice(c(3:6,12,13,164)) %>% select(variable_categorical,variable_numeric) %>%  unlist()%>% na.omit() %>% as.vector()
-```
-
 
 ```{r}
 # Participants identified as sexual or gender minorities at baseline, subsequent waves asked about trans identity and sexual orientation direclty
@@ -228,7 +210,7 @@ Study 1. Cross-sectional data
 ```{r}
 
 # Selecting cross sectional data and relevant variables, including demographic and geographic data
-cross <- data %>% filter(grepl("Cross",DATASET)) %>% select(UNIQUE_id, LGBTQ,starts_with("DEMO_"),WORK_hours_per_week,starts_with("GEO_"),all_of(social_patterns_vars), all_of(outcome_vars),DATASET) %>% droplevels.data.frame()
+cross <- data %>% filter(DATASET %in% c("2021 Cross-Sectional", "2023 Cross-Sectional", "2024 Cross-Sectional")) %>% select(UNIQUE_id, LGBTQ,starts_with("DEMO_"),WORK_hours_per_week,starts_with("GEO_"),all_of(c(activities_vars,number_of_social_connections_vars, social_time_vars)), LONELY_dejong_emotional_loneliness_sub_scale_score,LONELY_dejong_social_loneliness_sub_scale_score,DATASET) %>% droplevels.data.frame()
 
 # Deleting empty columns
 cross <- cross %>% select(-all_of(names(cross)[colSums(is.na(cross)) == nrow(cross)]))
@@ -285,8 +267,8 @@ cross <- cross %>%
 
 cross <- cross %>% mutate(DEMO_age_group_2=factor(case_when(
   DEMO_age<30 ~ "< 30 years",
-  DEMO_age %in% c(30:59) ~ "30 to 59 years",
-  DEMO_age %in% c(60:100) ~ "60 and older",
+  DEMO_age %in% c(30:64) ~ "30 to 64 years",
+  DEMO_age %in% c(65:100) ~ "65 and older",
   TRUE ~ NA
 ))) %>% relocate(DEMO_age_group_2, .after = DEMO_age_group)
 
@@ -316,9 +298,6 @@ cross <- cross %>% dplyr::mutate(DEMO_gender_so = factor(case_when(
 demo_vars <- colnames(cross)[c(2,5:14)] #contains 3 variables for age
 # Looking at differences between those with and without missing data
 cross <- cross %>% mutate(missing_outcome =  is.na(LONELY_dejong_emotional_loneliness_sub_scale_score) | is.na(LONELY_dejong_social_loneliness_sub_scale_score)) 
-#%>% 
-#  mutate(missing_exposure = is.na(LGBTQ) | DEMO_gender=="Presented but no response" | DEMO_orientation=="Presented but no response" |is.na(DEMO_gender) | is.na(DEMO_orientation))
-# missing_data_table <- cross %>% mutate(missing=missing_exposure==T | missing_outcome==T) %>% CreateTableOne(vars = c(demo_vars,"missing_outcome"), strata = "missing", data = ., includeNA = F)
 
 missing_data_table <- cross %>% CreateTableOne(vars = demo_vars, strata = "missing_outcome", data = ., includeNA = F)
 
@@ -326,8 +305,6 @@ missing_data_table
 tab_csv <- print(missing_data_table, printToggle = FALSE)
 write.csv(tab_csv, file = here("cscs","patterns_social_connection","cscs_cross_2025_missing_outcome.csv"))
 
-# missing_outcome_table_2 <- cross %>% filter(missing_exposure==F) %>% CreateTableOne(vars = c(demo_vars), strata = "missing_outcome", data = ., includeNA = F)
-# missing_outcome_table_2
 
 
 ```
@@ -345,7 +322,7 @@ Below we see the characteristics of participants missing outcome information, th
 
 ```{r}
 descr_tab <- df %>% CreateTableOne(vars = c(demo_vars, "LONELY_dejong_emotional_loneliness_sub_scale_score",
-"LONELY_dejong_social_loneliness_sub_scale_score","WELLNESS_phq_score","WELLNESS_gad_score","WELLNESS_life_satisfaction_num"), strata = "DATASET", data = ., includeNA = F, test = F, addOverall = T)
+"LONELY_dejong_social_loneliness_sub_scale_score"), strata = "DATASET", data = ., includeNA = F, test = F, addOverall = T)
 
 tab_1_csv <- print(descr_tab, printToggle = FALSE)
 write.csv(tab_1_csv, file = here("cscs","patterns_social_connection","cscs_cross_2025_t1.csv"))
@@ -354,10 +331,27 @@ write.csv(tab_1_csv, file = here("cscs","patterns_social_connection","cscs_cross
 
 # Dealing with Missing Data 
 ```{r}
-# Imputation
 
-missing_info <- DataExplorer::profile_missing(df)
+# Proportion missing
+missing_info <- DataExplorer::profile_missing(df) 
 #View(missing_info)
+
+#Little's test
+cross %>% select(starts_with("CONNECTION_"), LONELY_dejong_emotional_loneliness_sub_scale_score, LONELY_dejong_social_loneliness_sub_scale_score) %>% naniar::mcar_test() #NMAR
+df %>% select(starts_with("CONNECTION_")) %>% naniar::mcar_test() #NMAR
+
+# Transforming to integer due to very high OOBE with ordered factors
+
+vars_to_num <- df %>% select(starts_with("CONNECTION_")) %>% colnames()
+df[vars_to_num] <- lapply(df[vars_to_num],as.integer)
+df[vars_to_num] <- df[vars_to_num] - 1 #Zero-ing "None"
+
+# Listwise deletion
+demo_vars <- demo_vars[demo_vars !="GEO_residence_canada"]
+ids_complete <- df %>% select(-all_of(demo_vars)) %>%  filter(complete.cases(.)) %>% select(UNIQUE_id) %>% unlist() %>%  as.vector()
+df_complete_cases <- df %>% filter(UNIQUE_id %in% ids_complete)
+
+# Imputation
 if(file.exists(file = here("cscs","patterns_social_connection","cscs_cross_2025_imputed.RDS"))){
   df_imputed <- readRDS(here("cscs","patterns_social_connection","cscs_cross_2025_imputed.RDS"))} else {
     
@@ -370,93 +364,75 @@ if(file.exists(file = here("cscs","patterns_social_connection","cscs_cross_2025_
     registerDoParallel(cl)
     
     df_temp <- df %>% select(-DEMO_age_group,-DEMO_age_group_2, -UNIQUE_id)
-    #naniar::mcar_test(df_temp) p is 1, listwise deletion is recommended
-    #Among those with outcome, missing data is MCAR
 
-    p_load(missForest)
-    set(986) #added later OOB might change slightly
-    miss_df <- missForest(df_temp, verbose=T,parallelize = "forests", variablewise = T)
-    mean(miss_df$OOBerror[11:39]) #PFC
-    mean(sqrt(miss_df$OOBerror[43])/6,sqrt(miss_df$OOBerror[44])/6, sqrt(miss_df$OOBerror[45])/9) #NRMSE
     
+    p_load(missForest)
+
+    miss_df <- missForest(df_temp, verbose=T,parallelize = "forests", variablewise = T)
+    
+    imputation_info <- missing_info %>% filter(feature %in% colnames(df_temp))
+    imputation_info$OOBE <- miss_df$OOBerror
+    
+    
+    mse_1 <- mean(imputation_info$OOBE[which(colnames(df_temp) %in% activities_vars)]) #1 to 7
+    mse_2 <- mean(imputation_info$OOBE[which(colnames(df_temp) %in% c(number_of_social_connections_vars,social_time_vars[1:4]))]) #1 to 4
+    mse_3 <- mean(imputation_info$OOBE[which(colnames(df_temp) %in% social_time_vars[5:8])]) #1 to 3
+
+    nrmse_1 <- sqrt(mse_1)/6
+    nrmse_2 <- sqrt(mse_2)/3
+    nrmse_3 <- sqrt(mse_3)/2    
+    
+    
+    weighted_nrmse <- (18 * nrmse_1 + 9 * nrmse_2 + 4 *nrmse_3) / 31
+    weighted_nrmse
+
     df_imputed <- miss_df$ximp
     df_imputed[c("DEMO_age_group", "DEMO_age_group_2")] <- df[c("DEMO_age_group", "DEMO_age_group_2")]
     saveRDS(df_imputed, file = here("cscs","patterns_social_connection","cscs_cross_2025_imputed.RDS"))
     stopCluster(cl)
-    }
-
-# Listwise deletion
-ids_complete <- df %>% select(UNIQUE_id, starts_with("CONNECTION_"), starts_with("WELLNESS_"), starts_with("LONELY_")) %>%  filter(complete.cases(.)) %>% select(UNIQUE_id) %>% unlist() %>%  as.vector()
-
-df_complete_cases <- df %>% filter(UNIQUE_id %in% ids_complete)
-
-#num_vars <- df_complete_cases %>% select(starts_with("CONNECTION_"), starts_with("WELLNESS_"), starts_with("LONELY_")) %>%  colnames()
-#cross %>% select(all_of(num_vars)) %>% naniar::mcar_test()
-#MCAR
+  }
+patterns <- c(number_of_social_connections_vars, social_time_vars)
+df_imputed[c(activities_vars,patterns)] <- lapply(df_imputed[c(activities_vars,patterns)], round)
 ```
 
 
 # Reducing data dimensionality
-Clustering activities
+
 ```{r}
-p_load(FactoMineR)
-activities_mca <- MCA(df_imputed[activities_vars], graph = F)
-coords <- activities_mca$var$coord
+p_load("psych")
 
-p_load(factoextra)
-fviz_screeplot(activities_mca, addlabels = TRUE, ylim = c(0, 50))
-fviz_nbclust(activities_mca$var$coord, kmeans, method = "wss")
-fviz_nbclust(activities_mca$var$coord, kmeans, method = "silhouette") #optimal kmeans is 3
-#kmeans_result <- kmeans(coords, centers = 4) #based on conceptual analysis
+parallel_analysis_results <- fa.parallel(df_imputed[activities_vars], fa = "fa", n.iter = 100)
 
-reduced_activities <- as.data.frame(activities_mca$ind$coord) %>% select(1:4)
-colnames(reduced_activities) <- c("activity_avoidance", "activity_social", "activity_physical_intimacy", "activity_emotional_intimacy")
-df_imputed <-  cbind(df_imputed,reduced_activities)
+factor_analysis_results <- fa(df_imputed[activities_vars], nfactors = parallel_analysis_results$nfact, rotate = "oblimin", fm = "ml")
 
-# CompleteCASES
-activities_mca_cc <- MCA(df_complete_cases[activities_vars], graph = F)
-coords_cc <- activities_mca_cc$var$coord
-reduced_activities_cc <- as.data.frame(activities_mca_cc$ind$coord) %>% select(1:4)
-colnames(reduced_activities_cc) <- colnames(reduced_activities)
-df_complete_cases <-  cbind(df_complete_cases,reduced_activities_cc) %>% select(-all_of(activities_vars))
+print(factor_analysis_results$loadings, cutoff = 0.2) 
 
+factor_analysis_scores <- factor_analysis_results$scores %>% as.data.frame() %>% 
+  rename(group_activities = ML1, 
+         physical_intimacy = ML2, 
+         phone_conversation = ML3,
+         closed_meetings = ML4, # low varianace
+         digital_activities = ML5) # low varianace
 
-```
+df_imputed[colnames(factor_analysis_scores)] <- factor_analysis_scores
 
-Clustering social patterns
-```{r}
-patterns <- df_imputed %>% select(starts_with("CONNECTION_social")) %>% colnames()
-df_imputed[patterns] <- lapply(df_imputed[patterns], as.numeric)
+parallel_analysis_patterns <- fa.parallel(df_imputed[patterns], fa = "fa", n.iter = 100)
+fa_pattern_results <- fa(df_imputed[patterns], nfactors = parallel_analysis_patterns$nfact, rotate = "oblimin", fm = "ml")
 
-psych::KMO(df_imputed[patterns])
-psych::cortest.bartlett(cor(df_imputed[patterns]), n = nrow(df_imputed))
+print(fa_pattern_results$loadings, cutoff = 0.2) 
 
-pca_social_patterns <- prcomp(df_imputed[patterns],center = TRUE,scale. = T)
-summary(pca_social_patterns)
+pattern_scores <- fa_pattern_results$scores %>% as.data.frame() %>% 
+  rename(time_colleagues = ML1, 
+         time_neighbours = ML2, 
+         time_family = ML3,
+         time_friends = ML4)
 
-#Eigenvalues
-(pca_social_patterns$sdev[pca_social_patterns$sdev^2 >=1])^2
-#First 4 components explain up to 74% of the variance.
-pca_scores <- as.data.frame(pca_social_patterns$x[, 1:4])
-loadings <- pca_social_patterns$rotation[, 1:4]
-# View(loadings)
-colnames(pca_scores) <- c("social_disconnection", "casual_socialization", "friend_oriented", "family_oriented") 
-df_imputed <- cbind(df_imputed,pca_scores) 
-loadings %>% clipr::write_clip()
-
-# CompleteCASES
-df_complete_cases[patterns] <- lapply(df_complete_cases[patterns], as.numeric)
-pca_social_patterns_cc <- prcomp(df_complete_cases[patterns],center = TRUE,scale. = T)
-pca_scores_cc <- as.data.frame(pca_social_patterns_cc$x[, 1:4])
-loadings_cc <- pca_social_patterns_cc$rotation[, 1:4]
-colnames(pca_scores_cc) <- colnames(pca_scores) 
-df_complete_cases <- cbind(df_complete_cases,pca_scores_cc) %>% select(-all_of(patterns)) 
-
+df_imputed[colnames(pattern_scores)] <- pattern_scores
 
 ```
 Creating a simplified numeric dataset
 ```{r}
-df_simplified <- df_imputed %>% select(all_of(c(colnames(pca_scores), colnames(reduced_activities))), ends_with("sub_scale_score"), starts_with("WELLNESS"))
+df_simplified <- df_imputed %>% select(all_of(c(colnames(pattern_scores), colnames(factor_analysis_scores))), ends_with("sub_scale_score"))
 
 ##################  COMPLETE CASES  ##################
 # df_simplified_cc <- df_complete_cases %>% select(all_of(colnames(df_simplified)))
@@ -464,21 +440,20 @@ df_simplified <- df_imputed %>% select(all_of(c(colnames(pca_scores), colnames(r
 
 colnames(df_simplified) <- sub("LONELY_dejong_","",colnames(df_simplified))
 colnames(df_simplified) <- sub("_sub_scale_score","",colnames(df_simplified))
-colnames(df_simplified) <- sub("WELLNESS_","",colnames(df_simplified))
-colnames(df_simplified) <- sub("_num","",colnames(df_simplified))
 
 ##################  COMPLETE CASES  ##################
 # colnames(df_simplified_cc) <- colnames(df_simplified)
 # corp_cc <- plot_correlation(df_simplified_cc)
 ######################################################
 
-corp <- plot_correlation(df_simplified)
-ggsave(here("cscs","patterns_social_connection","cscs_cross_2025_correlation_plot.png"), plot = corp, width = 3000, height = 3000, units = "px", dpi = 300)
+corp <- DataExplorer::plot_correlation(df_simplified)
+p_load(ggplot2)
+ggsave(here("cscs","patterns_social_connection","cscs_cross_2025_correlation_plot.png"), plot = corp, width = 2000, height = 2000, units = "px", dpi = 300)
 
 p_load(bnlearn)
 
-strenght <- boot.strength(df_simplified, R=500, algorithm = "hc") #misspelling to avoid functions
-avg_bn <- averaged.network(strenght, threshold = 0.85)
+network_structure_result <- boot.strength(df_simplified, R=500, algorithm = "hc") 
+avg_bn <- averaged.network(network_structure_result, threshold = 0.85)
 
 ##################  COMPLETE CASES  ##################
 # cc_boot <- boot.strength(df_simplified_cc, R=500, algorithm = "hc") 
@@ -496,7 +471,7 @@ avg_bn <- averaged.network(strenght, threshold = 0.85)
 fitted_model <- bn.fit(avg_bn,data = df_simplified)
 arcs_neg <- matrix(ncol=2)
 colnames(arcs_neg) <- c("Var1", "Var2")
-for(i in c(1:13)){
+for(i in c(1:ncol(df_simplified))){
   node <- fitted_model[[i]]$node
   coeff <- fitted_model[[i]]$coefficients[fitted_model[[i]]$coefficients <0]
   
@@ -518,204 +493,82 @@ fitted_model$social_loneliness
 
 ```
 
-END OF CODE IN THE PAPER 
-
-# Variable selection through random forest
-```{r}
-p_load(Boruta)
-social_loneliness_vars <- Boruta(social_loneliness ~ ., 
-                        data = df_simplified %>% select(-emotional_loneliness),
-                        doTrace = 0,
-                        maxRuns = 50)
-
-emotional_loneliness_vars <- Boruta(emotional_loneliness ~ ., 
-                        data = df_simplified %>% select(-social_loneliness),
-                        doTrace = 0,
-                        maxRuns = 50)
-
-```
-
-A blacklist of directional constraints was defined a priori to prevent implausible or non-causal arcs. Specifically, we disallowed edges pointing from modifiable or behavioral variables to demographic variables assumed to be determined at birth (e.g., age group and ethnicity), and restricted reciprocal arcs between some demographic variables. Additional constraints were applied to prevent behavioral or psychosocial predictors from being modeled as causes of gender identity or sexual orientation.  
 
 ```{r}
+outcomes <- c("LONELY_dejong_emotional_loneliness_sub_scale_score","LONELY_dejong_social_loneliness_sub_scale_score")
 
-df_factor <- df_imputed %>% select(-starts_with("CONNECTION_"), -exposure, -LGBTQ, ,-LONELY_dejong_emotional_social_loneliness_scale_score, -DEMO_age,-DEMO_age_group_2, -GEO_province, -DATASET)
+p_load(factoextra)
+fviz_nbclust(cbind(factor_analysis_scores,pattern_scores), kmeans, method = "wss")  #no clear elbow
+fviz_nbclust(cbind(factor_analysis_scores,pattern_scores), kmeans, method = "silhouette") #3 activity clusters
 
-
-for (var in colnames(df_factor)[16:23]){
-df_factor[[var]] <- scales::rescale(df_factor[[var]], to = c(-2, 2))
-df_factor[[var]] <- factor(round(df_factor[[var]]), ordered = T)
-}
-
-for (var in c("WELLNESS_phq_score","WELLNESS_gad_score","WELLNESS_life_satisfaction_num")){
-df_factor[[var]] <- scales::rescale(df_factor[[var]], to = c(0, 6))
-df_factor[[var]] <- factor(round(df_factor[[var]]), ordered = T)
-}
-
-born_with_factor <- c("DEMO_age_group", "DEMO_ethnicity") # "gender" and "orientation" are not included because we assumed other variables influence reporting
-other_vars_factor <- colnames(df_factor)[!colnames(df_factor) %in% born_with_factor]
-
-blacklistf <- expand.grid(
-  from = other_vars_factor,
-  to = born_with_factor
-)
-
-blacklistf <- rbind(blacklistf, expand.grid(
-  from = born_with_factor,
-  to = born_with_factor
-))
-
-not_demo_vars <- df_factor %>% select(-starts_with("DEMO")) %>% colnames()
-
-blacklistf <- rbind(blacklistf, expand.grid(
-  from = c(not_demo_vars,"DEMO_relationship_status"),
-  to = c("DEMO_gender", "DEMO_orientation")
-))
+cluster_social <- kmeans(cbind(factor_analysis_scores,pattern_scores), centers = 2, nstart = 25)
 
 
-df_factor <-  as.data.frame(lapply(df_factor, function(x) {
-  if (is.numeric(x)) as.factor(x) else x
-}))
-
-BN_500 <- boot.strength(df_factor, R=500, algorithm = "hc", algorithm.args = list(blacklist=blacklistf))
-avg_factor <- averaged.network(BN_500, threshold = 0.85)
-
-dag_factor <- hc(df_factor,blacklist = blacklistf, score = "bic")
-arc_factor <- arc.strength(dag_factor, data = df_factor, criterion = "bic")
-# Plot the result
-
-graphviz.plot(dag_factor, fontsize = 20)
-fitted_model_factor <- bn.fit(dag_factor, df_factor)
-fitted_model_factor$LONELY_dejong_emotional_loneliness_sub_scale_score
-fitted_model_factor$LONELY_dejong_social_loneliness_sub_scale_score
-```
-```{r}
-library(reshape2)
-
-# Extract the CPT
-cpt <- fitted_model_factor$LONELY_dejong_social_loneliness_sub_scale_score$prob
-
-# Convert to data.frame
-df_cpt <- as.data.frame(as.table(cpt))
-df_cpt2 <- fitted_model_factor$LONELY_dejong_emotional_loneliness_sub_scale_score$prob %>% as.data.frame()
-
-# Rename for clarity
-colnames(df_cpt) <- c("Social_Loneliness", "Life_Satisfaction", "Activity_Avoidance", "Probability")
-
-colnames(df_cpt2)<- c("Emotional_Loneliness", "Age_group", "Probability") 
-# Plot as heatmap
-
-plot_sl <- ggplot(df_cpt, aes(x = Life_Satisfaction, y = Activity_Avoidance, fill = Probability)) +
-  geom_tile(color = "white") +
-  facet_wrap(~ Social_Loneliness) +
-  scale_fill_viridis_c() +
-  theme_minimal() +
-  labs(title = "Conditional probabilities of Social Loneliness")
-
-plot_el <- ggplot(df_cpt2, aes(x = Age_group, y = Emotional_Loneliness, fill = Probability)) +
-  geom_tile(color = "white") +
-  scale_fill_viridis_c() +
-  theme_minimal() +
-  labs(title = "Conditional probabilities of Emotional Loneliness")
+df_imputed$cluster_social <- as.factor(as.character(cluster_social$cluster))
+CreateTableOne(vars=c(colnames(factor_analysis_scores),colnames(pattern_scores), outcomes), strata = "cluster_social", data=df_imputed)
 
 ```
 
 
+```{r}
+df_factor <- df_imputed %>% select(DEMO_age_group_2, DEMO_gender_so,DEMO_household_income, DEMO_ethnicity, GEO_housing_household_size, starts_with("cluster"),all_of(outcomes))
 
+colnames(df_factor) <- sub("DEMO_","",colnames(df_factor))
+colnames(df_factor) <- sub("LONELY_dejong_","",colnames(df_factor))
+colnames(df_factor) <- sub("_sub_scale_score","",colnames(df_factor))
 
-#Optional RANDOM FOREST direct analysis
-```{r eval=FALSE, include=TRUE}
-p_load(randomForest)
-p_load(caret)
+df_factor <- df_factor %>% rename(social_prescription=cluster_social)
+levels(df_factor$social_prescription) <- c("Yes", "No")
+ 
+black_list_vars <- expand.grid(from=colnames(df_factor),to=c("age_group_2", "gender_so","ethnicity")) %>% as.data.frame()
 
-set.seed(123)
+df_factor[1:ncol(df_factor)] <- lapply(df_factor[1:ncol(df_factor)], as.character)
+df_factor[1:ncol(df_factor)] <- lapply(df_factor[1:ncol(df_factor)], as.factor)
+demo_dag <- boot.strength(df_factor, R=500, algorithm = "hc", algorithm.args = list(blacklist = black_list_vars))
+avg_demo <- averaged.network(demo_dag, threshold = 0.85)
 
+fitted_model_demo <- bn.fit(avg_demo, data = df_factor)
+png(here("cscs","patterns_social_connection","cscs_cross_2025_dag_factor_plot.png"), width = 800, height = 800, units = "px", res = 300)
+graphviz.plot(fitted_model_demo)
+dev.off()
 
-# Set up tuning grid
-tune_grid <- expand.grid(mtry = c(2, 4, 6, 8, 10))
+emo_lone <- as.data.frame(as.table(fitted_model_demo$emotional_loneliness$prob))
 
-# Train model using 5-fold cross-validation
-ctrl <- trainControl(method = "cv", number = 5, classProbs = TRUE, summaryFunction = multiClassSummary)
+fig_dep <- ggplot(emo_lone, aes(x = age_group_2, y = Freq, fill = emotional_loneliness)) +
+    geom_bar(stat = "identity", position = "fill") +
+    scale_y_continuous(labels = scales::percent_format()) +
+    labs(
+        title = "Conditional Probabilities of Emotional Loneliness",
+        x = "Age group",
+        y = "Proportion",
+        fill = "Emotional Loneliness"
+    ) +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Set2")
+ggsave(here("cscs","patterns_social_connection","cscs_cross_2025_probs_emo_lon.png"), plot = fig_dep, width = 2000, height = 2000, units = "px", dpi = 300)
 
-rf_social_loneliness_model <- train(
-  social_loneliness ~ ., 
-  data = df_simplified %>% select(-emotional_loneliness),
-  method = "rf",
-  trControl = ctrl,
-  tuneGrid = tune_grid,
-  metric = "Kappa", 
-  ntree = 500
-)
-
-rf_emotional_loneliness_model <- train(
-  emotional_loneliness ~ ., 
-  data = df_simplified %>% select(-social_loneliness),
-  method = "rf",
-  trControl = ctrl,
-  tuneGrid = tune_grid,
-  metric = "Kappa", 
-  ntree = 500
-)
-
-# Review results
-social_imp_vars <- varImp(rf_social_loneliness_model)$importance
-social_imp_vars$prop <- social_imp_vars$Overall/sum(social_imp_vars$Overall)
-
-social_imp_vars$Include <- ifelse(social_imp_vars$Overall >=(max(social_imp_vars$Overall)*.1),T,F)
-
-emo_imp_vars <- varImp(rf_emotional_loneliness_model)$importance
-emo_imp_vars$Include <- ifelse(emo_imp_vars$Overall >=(max(emo_imp_vars$Overall)*.1),T,F)
-
-
+df_dag <- as.data.frame(as.table(fitted_model_demo$social_loneliness$prob))
+fig_dependencies <- ggplot(df_dag, aes(x = emotional_loneliness, y = Freq, fill = social_loneliness)) +
+    geom_bar(stat = "identity", position = "fill") +
+    facet_wrap(~ social_prescription, labeller = label_both) +
+    scale_y_continuous(labels = scales::percent_format()) +
+    labs(
+        title = "Conditional probabilities of Social Loneliness levels by levels of emotional loneliness and social prescribing",
+        x = "Emotional Loneliness",
+        y = "Proportion",
+        fill = "Social Loneliness"
+    ) +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Set2")
+ggsave(here("cscs","patterns_social_connection","cscs_cross_2025_probs_soc_lon.png"), plot = fig_dependencies, width = 2000, height = 2000, units = "px", dpi = 300)
 ```
 
-# PCA with p3m
+
 ```{r}
-p3m_vars <- which_datasets_group(activities_past_three_months) %>% filter(baseline==T & cross23==T & cross24==T) %>% select(variable_name) %>% unlist() %>%  as.vector()
+bn.fit.barchart(fitted_model_demo$social_prescription)
 
-tdf <- data %>% filter(grepl("Cross",DATASET)) %>% select(all_of(p3m_vars)) %>% filter(complete.cases(.))
-ttdf <- tdf
-for (var in colnames(tdf)){
-  levels(tdf[[var]])[levels(tdf[[var]])=="Presented but no response"] <- NA
-  tdf[[var]] <- as.numeric(tdf[[var]])
-}
+bn.fit.dotplot(fitted_model_demo$social_prescription, main = "Conditional probabilities of social prescription", xlab = "Age group", ylab = "Gender and sexual orientation")
 
-table(tdf[[1]])
-table(ttdf[[1]])
-tdf <- tdf %>% filter(complete.cases(.))
-colnames(tdf) <- sub("CONNECTION_activities_","",colnames(tdf))
-colnames(tdf) <- sub("_p3m","",colnames(tdf))
+bn.fit.dotplot(fitted_model_demo$social_loneliness, xlab = "Social prescription", ylab = "Emotional loneliness", main = "Conditional probabilities of social loneliness")
 
-pca_p3m <- prcomp(tdf,center = TRUE,scale. = T)
-summary(pca_p3m)
-#Eigenvalues
-pca_p3m$sdev^2 # 3 meaningful components per the K1 rule  
-#First 3 components explain up to 53.7% of the variance. Fourth component explains an extra 4.9%
-
-p3m_scores <- as.data.frame(pca_p3m$x[, 1:4])
-p3m_loadings <- pca_p3m$rotation[, 1:4]
-View(p3m_loadings)
-```
-
-# Plotting loneliness across the lifecourse
-```{r}
-p_load(ggplot2)
-
-emo_l <- ggplot(df, aes(x = as.numeric(DEMO_age_group), y = LONELY_dejong_emotional_loneliness_sub_scale_score, color = exposure, fill = exposure)) +
-  geom_smooth(se = F) +
-  ylab("Emotional Loneliness Score") +
-  xlab("Age Group") +
-  scale_x_continuous(breaks = 1:11, labels = levels(df$DEMO_age_group)) + 
-  theme_minimal() 
-
-social_l <- ggplot(df, aes(x = as.numeric(DEMO_age_group), y = LONELY_dejong_social_loneliness_sub_scale_score, color = exposure, fill = exposure)) +
-  geom_smooth(se = F) +
-  ylab("Social Loneliness Score") +
-  xlab("Age Group") +
-  scale_x_continuous(breaks = 1:11, labels = levels(df$DEMO_age_group)) + 
-  theme_minimal()
-
-p_load(patchwork)
-p3 <- emo_l +social_l+ plot_layout(nrow = 2)
-suppressWarnings(suppressMessages(print(p3))) 
 ```
