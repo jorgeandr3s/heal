@@ -409,10 +409,11 @@ print(factor_analysis_results$loadings, cutoff = 0.2)
 
 factor_analysis_scores <- factor_analysis_results$scores %>% as.data.frame() %>% 
   rename(group_activities = ML1, 
+         closed_meetings = ML4, 
          physical_intimacy = ML2, 
+         digital_activities = ML5,
          phone_conversation = ML3,
-         closed_meetings = ML4, # low varianace
-         digital_activities = ML5) # low varianace
+         ) 
 
 df_imputed[colnames(factor_analysis_scores)] <- factor_analysis_scores
 
@@ -454,6 +455,7 @@ p_load(bnlearn)
 
 network_structure_result <- boot.strength(df_simplified, R=500, algorithm = "hc") 
 avg_bn <- averaged.network(network_structure_result, threshold = 0.85)
+avg_bn_95 <- averaged.network(network_structure_result, threshold = 0.95)
 
 ##################  COMPLETE CASES  ##################
 # cc_boot <- boot.strength(df_simplified_cc, R=500, algorithm = "hc") 
@@ -499,7 +501,7 @@ outcomes <- c("LONELY_dejong_emotional_loneliness_sub_scale_score","LONELY_dejon
 
 p_load(factoextra)
 fviz_nbclust(cbind(factor_analysis_scores,pattern_scores), kmeans, method = "wss")  #no clear elbow
-fviz_nbclust(cbind(factor_analysis_scores,pattern_scores), kmeans, method = "silhouette") #3 activity clusters
+fviz_nbclust(cbind(factor_analysis_scores,pattern_scores), kmeans, method = "silhouette") #2 activity clusters
 
 cluster_social <- kmeans(cbind(factor_analysis_scores,pattern_scores), centers = 2, nstart = 25)
 
@@ -572,3 +574,191 @@ bn.fit.dotplot(fitted_model_demo$social_prescription, main = "Conditional probab
 bn.fit.dotplot(fitted_model_demo$social_loneliness, xlab = "Social prescription", ylab = "Emotional loneliness", main = "Conditional probabilities of social loneliness")
 
 ```
+```{r}
+list_act <- df_imputed %>% select(starts_with("CONNECTION_act")) %>% purrr::map(table) 
+
+for(i in 1:18)
+  name_activity <-sub("_p3m","", sub("CONNECTION_activities_","",names(list_act[1])))
+  activities_count <- data.frame(activity=name_activity,
+  group=levels(cross[[names(list_act[1])]])[levels(cross[[names(list_act[1])]]) != "Presented but no response"],
+  total=as.vector(list_act[[1]]))
+  
+for(i in 2:18){
+  name_activity <-sub("_p3m","", sub("CONNECTION_activities_","",names(list_act[i])))
+  activities_count <- rbind(activities_count, data.frame(activity=name_activity,
+  group=levels(cross[[names(list_act[i])]])[levels(cross[[names(list_act[i])]]) != "Presented but no response"],
+  total=as.vector(list_act[[i]])))
+}
+p_load(tidyverse)
+p_load(showtext)
+p_load(ggtext)
+p_load(waffle)
+p_load(MetBrewer)
+
+font_add_google("Outfit", "title_font")
+font_add_google("Cabin", "body_font")
+showtext_auto()
+
+title_font <- "title_font"
+body_font <- "body_font"
+
+title_text <- "Frequency of social activities in the past three months"
+subtitle_text <- "Source: Canadian Social Connection Survey"
+caption_text <- "Healthy Ecologies and Lifestyles Lab, Simon Fraser University"
+
+activities_count$group <- factor(activities_count$group, levels = unique(activities_count$group))
+activities_count$activity <- factor(activities_count$activity)
+levels(activities_count$activity) <- c("temple","coffee","PC game","discuss","gym","zoom", "help","hug", "kiss","meeting","befriend","phone","sex","SMS","visit_fam","visit_pal","volunteer","walk")
+
+activities_count$total_adjusted <- round(activities_count$total/10,digits = 0)
+df_graph <- activities_count %>% filter(group!="Not in the past three months") %>% droplevels.data.frame()
+
+p = ggplot(df_graph, aes(fill = group, values = total_adjusted)) +
+  geom_waffle(color = "white", size = .25, n_rows = 10, flip = TRUE) +
+  facet_wrap(~activity, nrow = 1, strip.position = "bottom") +
+  scale_x_discrete() +
+  scale_y_continuous(breaks = c(0, 20, 40, 60),
+                     labels = c("0", "2000", "4000", "6000"))+
+  MetBrewer::scale_fill_met_d("Hiroshige", direction=1)+
+  coord_equal()+
+  labs(title = title_text,
+       subtitle = subtitle_text,
+       caption = caption_text)+
+  theme_minimal()+
+  theme(
+    axis.title = element_blank(),
+    axis.text.x = element_text(family = body_font, size = 12, angle = 90, hjust = 1, vjust = 0.5),
+    axis.text.y = element_text(family = body_font, size = 12),
+  # Legend
+  legend.position = "top",
+  legend.title = element_blank(),
+  legend.spacing = unit(0.5, 'cm'),
+  legend.key.height= unit(0.5, 'cm'),
+  legend.key.width= unit(0.7, 'cm'),
+  legend.text = element_text(family = body_font,
+                             size=13,
+                             face = 'plain',
+                             color = "grey10"),
+  
+  # TITLE
+  plot.title.position = "plot",
+  plot.title = element_textbox(margin = margin(20, 0, 10, 0),
+                               size = 30,
+                               family = title_font,
+                               face = "bold",
+                               width = unit(55, "lines")),
+  
+  # SUB-TITLE
+  plot.subtitle = element_text(margin = margin(10, 0, 20, 0),
+                            size = 16,
+                            family = body_font,
+                            color = "grey15"),
+  # Caption
+  plot.caption = element_text(family=body_font,
+                              face="plain",
+                              size=14, 
+                              color="grey40",
+                              hjust=.5,
+                              margin=margin(20,0,0,0)),
+  
+  plot.background = element_rect(color="white", fill="white"),
+  plot.margin = margin(20, 40, 20, 40)
+) +theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+showtext_opts(dpi = 320)
+ggsave(
+  here("cscs","patterns_social_connection","cscs_cross_2025_waffle.png"),
+  dpi=320, width = 12, height = 9
+)
+showtext_auto(FALSE)
+```
+
+```{r}
+
+rdf2 <- data %>%
+  filter(UNIQUE_id %in% cross$UNIQUE_id) %>%
+  select(all_of(number_of_social_connections_vars)) %>%
+  mutate(across(everything(), as.character))  %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "level") %>%
+  count(variable, level, name = "n") 
+
+rdf2 <- rdf2 %>% filter(!is.na(level) & level != "Presented but no response") 
+rdf2$level[grepl("none",rdf2$level, ignore.case = T)] <- "0 (None)"
+rdf2$level[grepl("1",rdf2$level, ignore.case = T)] <- "1 or 2"
+rdf2$level[grepl("3",rdf2$level, ignore.case = T)] <- "3 or 4"  
+rdf2$level[grepl("5",rdf2$level, ignore.case = T)] <- "5 or more"  
+rdf2$variable[grepl("close_frie",rdf2$variable, ignore.case = T)] <- "Close friends" 
+rdf2$variable[grepl("family",rdf2$variable, ignore.case = T)] <- "Family" 
+rdf2$variable[grepl("neighb",rdf2$variable, ignore.case = T)] <- "Neighbours" 
+rdf2$variable[grepl("coworkers",rdf2$variable, ignore.case = T)] <- "Colleagues" 
+rdf2$variable[grepl("grouped",rdf2$variable, ignore.case = T)] <- "Friends" 
+
+
+rdf2<-  rdf2 %>%
+  group_by(variable) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+rdf2$n[rdf2$level=="0 (None)"] <- -1*rdf2$n[rdf2$level=="0 (None)"]
+rdf2$prop[rdf2$level=="0 (None)"] <- -1*rdf2$prop[rdf2$level=="0 (None)"]
+
+p_load(hrbrthemes)
+
+rdf2 <- rdf2 %>%
+  mutate(variable = factor(variable, levels = c("Close friends", "Friends", "Family", "Neighbours", "Colleagues"),ordered = T)) %>%
+  arrange(variable)
+
+rdf2$level <- factor(rdf2$level, levels = c("0 (None)", "5 or more", "3 or 4", "1 or 2"), ordered = T)
+
+ggplot(rdf2, aes(fill=level, y=prop, x=variable)) + 
+  geom_bar(position="stack", stat="identity") + 
+  scale_fill_met_d("Hiroshige", d=1) +  theme_ipsum() +
+  xlab("Social group") + 
+  ylab("Proportion") +
+  ggtitle("People you spent at least 5 minutes with during the past week") +
+    scale_y_continuous(labels = scales::percent_format()) + theme_bw()
+```
+```{r}
+efa_copy <- factor_analysis_results
+rownames(efa_copy$loadings) <-  c("temple","coffee","PC game","discuss","gym","zoom", "help","hug", "kiss","meeting","befriend","phone","sex","SMS","visit_fam","visit_pal","volunteer","walk")
+psych::fa.diagram(efa_copy)
+```
+```{r}
+p_load(ggstatsplot)
+p_load(patchwork)
+
+# Generate list of plots
+plots_activities <- lapply(colnames(factor_analysis_scores), function(y) {
+  ggbetweenstats(
+    data = df_imputed,
+    x = cluster_social,
+    y = !!sym(y),
+    xlab = "Social prescription",
+    ylab = stringr::str_to_sentence(sub("_"," ",y)),
+    title = ""
+    ) 
+})
+
+# Combine them in a 2x2 grid
+combined_plot <- (plots_activities[[1]] | plots_activities[[2]]) /
+                 (plots_activities[[3]] | plots_activities[[4]])
+
+#combined_plot
+
+plots_patterns <- lapply(colnames(pattern_scores), function(y) {
+  ggbetweenstats(
+    data = df_imputed,
+    x = cluster_social,
+    y = !!sym(y),
+    xlab = "Social prescription",
+    ylab = stringr::str_to_sentence(sub("_"," ",y)),
+    title = ""
+    ) 
+})
+
+combined_plot_pat <- (plots_patterns[[1]] | plots_patterns[[2]]) /
+                 (plots_patterns[[3]] | plots_patterns[[4]])
+
+#combined_plot_pat
+```
+
