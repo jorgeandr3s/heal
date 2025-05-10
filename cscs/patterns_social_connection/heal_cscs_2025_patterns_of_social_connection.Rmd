@@ -503,13 +503,47 @@ p_load(factoextra)
 fviz_nbclust(cbind(factor_analysis_scores,pattern_scores), kmeans, method = "wss")  #no clear elbow
 fviz_nbclust(cbind(factor_analysis_scores,pattern_scores), kmeans, method = "silhouette") #2 activity clusters
 
-cluster_social <- kmeans(cbind(factor_analysis_scores,pattern_scores), centers = 2, nstart = 25)
 
+cluster_social <- kmeans(cbind(factor_analysis_scores,pattern_scores), centers = 2, nstart = 25)
 
 df_imputed$cluster_social <- as.factor(as.character(cluster_social$cluster))
 CreateTableOne(vars=c(colnames(factor_analysis_scores),colnames(pattern_scores), outcomes), strata = "cluster_social", data=df_imputed)
-
 ```
+
+
+```{r}
+p_load(mclust)
+
+lpa_model <- Mclust(cbind(factor_analysis_scores,pattern_scores))
+plot(lpa_model, what = "BIC")
+
+lpa_model_refined <- Mclust(cbind(factor_analysis_scores,pattern_scores), G = 3, modelNames = "VVV") #Variable variance, shape, and orientation
+df_imputed$LPA_cluster <- lpa_model_refined$classification
+df_imputed[c("lpa_1","lpa_2","lpa_3")] <- as.data.frame(lpa_model_refined$z)
+CreateTableOne(vars=c(colnames(factor_analysis_scores),colnames(pattern_scores), outcomes), strata = "LPA_cluster", data=df_imputed)
+
+lpa_cl_tbl <- df_imputed %>% mutate(
+  social_loneliness = factor(LONELY_dejong_social_loneliness_sub_scale_score, ordered = T), emotional_loneliness=factor(LONELY_dejong_emotional_loneliness_sub_scale_score, ordered = T)) %>% CreateTableOne(vars=c(colnames(factor_analysis_scores),colnames(pattern_scores), outcomes, "social_loneliness", "emotional_loneliness", "DEMO_age_group_2","DEMO_student","DEMO_gender_so","GEO_housing_household_size","WORK_hours_per_week", "DEMO_household_income","DEMO_relationship_status", "DATASET"), strata = "LPA_cluster", data=., test = F) 
+```
+
+*Cluster 1: Family-Focused but Lonely*
+N = 2,730
+This group reports high time with family and high physical intimacy and reports the lowest levels of emotional loneliness (1.58), and moderate levels of social loneliness (1.81, with 43.2% of them scoring 3), indicating loneliness despite proximity or caregiving relationships. They spend less time in broader group, digital, or peer interactions than the socially active group, but more so that the socially distanced. 
+
+Key defining traits: High time with family but severe social loneliness, older adults and lone dwellers, emotionally underserved despite intimate connections.
+
+*Cluster 2: Socially Engaged Connectors*
+N = 1,898
+Cluster 2 shows high levels of social engagement across group, digital, and phone-based activities, with frequent time spent with friends and colleagues. Despite this, their social loneliness score remains moderate (1.81), and emotional loneliness is somewhat high (2.49), indicating that quantity of interaction does not necessarily equal emotional closeness (only 2.4% of the participants scored 0 in this dimension). This group is predominantly young (<30 years), gender-diverse (notably 2SLGBTQ+ men and non-binary individuals), and often students or part-time workers. They typically live with others, suggesting embeddedness in peer networks, though possibly lacking deeper emotional bonds. Despite a high amount of digital activity and likely digital readiness, they talk/text to others one-on-one less frequently than the other groups.
+
+Key defining traits: Highly social and digitally connected, young and gender-diverse, moderate social but elevated emotional loneliness, high peer interaction but potential unmet emotional needs.
+
+*Cluster 3: Socially Disconnected*
+N = 1,565
+This group is characterized by low participation in group and digital activities, limited time with friends, neighbours, and colleagues, and above-average levels of both emotional and social loneliness (De Jong scores: emotional = 1.58, social = 1.81). Although demographically mixed, they skew older and unemployed, with a large portion living alone. Their low engagement across nearly all social domains and relatively high loneliness scores suggest they may be at significant risk of social isolation and distress. This group likely lacks both emotional closeness and broader social integration.
+
+Key defining traits: Broad social withdrawal, low income, elevated social loneliness and moderate emotional loneliness, often older or unemployed, with many living alone.
+
 
 
 ```{r}
