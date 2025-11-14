@@ -40,7 +40,11 @@ vignettes/*.pdf
 .Renviron
 
 # pkgdown site
-private/
+
+#private folders
+cscs/private/
+TRIP/private
+cscs/public/correlation_tables
 
 # translation temp files
 po/*~
