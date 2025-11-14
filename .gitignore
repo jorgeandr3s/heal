@@ -45,6 +45,7 @@ vignettes/*.pdf
 cscs/private/
 TRIP/private
 cscs/public/correlation_tables
+cscs/docs/social_patterns
 
 # translation temp files
 po/*~

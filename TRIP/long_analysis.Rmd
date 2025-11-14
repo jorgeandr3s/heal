@@ -1,0 +1,702 @@
+---
+title: "Longitudinal effects of psilocybin on distress"
+author: "Jorge Andres Delgado-Ron"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Step 1.
+- Data loading
+- Convert all dose data to numeric
+- Convert K6 scores to numeric
+- Estimated mean K6 score
+- Created variable id and time based on email and year of the survey
+
+- Included participants who declared never have used psilocybin at baseline
+- Excluded participants who subsequently declared used More than 5 years ago
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load required libraries
+library(tidyverse)
+library(cluster)
+library(factoextra)
+library(ggplot2)
+set.seed(188)
+
+setwd("C:/RProjects/heal/TRIP/")
+
+# Load data
+data_merged <- read_csv("merged_data.csv", na = c("9999"))
+
+# Apply to selected columns
+dose_vars <- c("past12m_microdose_count",
+               "past12m_light_dose_count",
+               "past12m_medium_dose_count",
+               "past12m_strong_dose_count",
+               "past12m_hero_dose_count",
+               "past12m_unknown_dose_count",
+               "psilocybin_use_past_12_months")
+k6_items <- c("k6_nervous", "k6_hopeless", "k6_restless", 
+              "k6_depressed", "k6_effort", "k6_worthless")
+
+convert_k6_response <- function(x) {
+  recode(x,
+         "None of the time" = 0,
+         "A little of the time" = 1,
+         "Some of the time" = 2,
+         "Most of the time" = 3,
+         "All of the time" = 4,
+         .default = 0)
+}
+
+data_merged <- data_merged %>% 
+  mutate(across(all_of(dose_vars), ~str_extract(.,"\\d+"))) %>%
+  mutate(across(all_of(dose_vars), ~as.numeric(.))) %>%
+  mutate(across(all_of(k6_items), ~convert_k6_response(.)))
+
+data_merged$k6_score <- rowSums(data_merged[k6_items], na.rm = TRUE)
+data_merged$time <- substr(data_merged$end_date,1,4)
+data_merged$id <- as.factor(data_merged$email_address)
+
+elegible <- data_merged$email_address[data_merged$last_psilocybin_use=="I have never used psilocybin" & data_merged$time=="2023"]
+
+sample <- data_merged %>% filter(email_address %in% elegible)
+
+length(unique(sample$id))
+
+inconsistent <- sample$id[sample$last_psilocybin_use %in% c("More than 5 years ago")] %>% as.character()
+sample <- sample %>% subset(!email_address %in% inconsistent)
+length(unique(sample$id))
+
+potential_first_year_users <- sample$id[sample$last_psilocybin_use %in% c("In the past 5 years")] %>% as.character()
+
+
+sample %>% filter(id %in% potential_first_year_users) %>% select(time,last_psilocybin_use)
+#3 users used psilocybin on year 1 but not year 2
+
+```
+
+```{r}
+race_df <- data_merged %>% filter(time==2023) %>% select(id,time, starts_with("race_"))
+
+```
+
+
+#Derived variables
+- Replaced NA values with zeroes for dose counts
+- created a new varaible for any dose in the past 12 months
+- estimated the highest dose per year and overall
+- Transformed "Hero" dose to "Strong" due to small counts (n=1)
+- Delete participants with missing data on the outcome (n=1)
+
+```{r}
+
+for (var in dose_vars){
+sample[[var]][sample$last_psilocybin_use=="I have never used psilocybin"] <- 0}
+sample$treatment <- ifelse(is.na(sample$psilocybin_use_past_12_months), NA, 
+                           ifelse(sample$psilocybin_use_past_12_months>=1,1,0))
+
+sample$past12m_any_count <- rowSums(sample[, dose_vars], na.rm = TRUE)
+
+sample <- sample %>% mutate(
+  max_dose=factor(case_when(
+    !is.na(past12m_unknown_dose_count) & past12m_unknown_dose_count >= 1 ~ NA,
+    past12m_hero_dose_count>0 ~ "Strong",
+    past12m_strong_dose_count>0 ~ "Strong",
+    past12m_medium_dose_count>0 ~ "Medium",
+    past12m_light_dose_count>0 ~ "Light",
+    past12m_microdose_count>0 ~ "Microdose",
+    past12m_any_count==0 ~ "None",
+    TRUE ~ NA
+  ), levels = c("None","Microdose", "Light", "Medium", "Strong"), ordered = T)
+)
+
+emails_with_unknown_doses <- sample %>% filter(is.na(max_dose)) %>% 
+  select(id) %>% droplevels.data.frame(.) %>%
+  unique() %>% unlist() %>% as.character()
+
+emails_with_known_doses <- as.character(unique(data_merged$email_address))[!as.character(unique(data_merged$email_address)) %in% emails_with_unknown_doses]
+
+sample <- sample %>%
+  group_by(id) %>%
+  arrange(time) %>%
+  mutate(
+    max_dose_num = as.numeric(max_dose),      # convert ordered factor to numeric
+    max_dose_historical_num = cummax(replace(max_dose_num, is.na(max_dose_num), -Inf)),
+    max_dose_historical = factor(
+      levels(max_dose)[max_dose_historical_num],  # convert back to factor labels
+      levels = levels(max_dose),
+      ordered = TRUE
+    )
+  ) %>% ungroup %>% mutate(
+    max_dose_historical_num=max_dose_historical_num-1,
+    max_dose_num=max_dose_num-1
+  ) 
+table(sample$max_dose,sample$time, useNA = "ifany")
+
+emails_with_missing_data <- sample %>% 
+  dplyr::select(id, treatment,time,k6_score) %>% 
+  filter(complete.cases(.)) %>%
+  count(id) %>%
+  filter(n == 1) %>%
+  pull(id)
+
+length(unique(sample$id))
+sample <- sample %>% 
+  filter(!id %in% emails_with_missing_data) %>% 
+  mutate(time=as.numeric(time)-2022)
+
+length(unique(sample$id))
+
+
+```
+describe participation rates
+
+110
+  28 tried in first year
+        11 tried again
+        17 did not provide follow up information
+  82 did not try in the first year
+        40 did not try during follow up
+        41 did not provide follow up information
+        1 tried it on year 2
+        
+```{r}
+part_r <- sample %>% select(id,time,treatment) %>% pivot_wider(., id_cols = id, names_from = time, names_prefix = "t_",values_from = treatment) 
+tableone::CreateCatTable(vars="t_3", strata="t_2", data=part_r, includeNA = T, addOverall = T)
+
+#Out of 110 participants who had not taken psilocybin at baseline, 28 tried it on the first year of follow-up and 82 did not.
+```
+# RQ1 how do the change in scores of people who tried psilocybin during the first year compare to those who did not try it. (controlled before-and-after)
+
+10.1093/ije/dyab050
+
+
+```{r}
+library(DiagrammeR)
+library(dagitty)
+my_dag <- dagitty("
+dag {
+  bb=\"0,0,1,1\"
+
+  \"K6 score after treatment\" [outcome]
+  \"K6 score at baseline\"     [adjusted]
+  \"Psilocybin use\"           [exposure]
+  \"health-seeking behaviour\" [latent]
+  \"past psychiatric drug use\" 
+  \"racial identity\"          
+  age                          [adjusted]
+  education                    [adjusted]
+  gender                       [adjusted]
+  income                       [latent]
+
+  \"K6 score at baseline\" -> \"K6 score after treatment\"
+  \"K6 score at baseline\" -> \"Psilocybin use\"
+
+  \"Psilocybin use\" -> \"K6 score after treatment\"
+
+  \"health-seeking behaviour\" -> \"past psychiatric drug use\"
+
+  \"past psychiatric drug use\" -> \"K6 score at baseline\"
+  \"past psychiatric drug use\" -> \"Psilocybin use\"
+
+  \"racial identity\" -> \"health-seeking behaviour\"
+  \"racial identity\" -> \"past psychiatric drug use\"
+  \"racial identity\" -> education
+  \"racial identity\" -> income
+
+  age -> \"K6 score at baseline\"
+  age -> \"Psilocybin use\"
+  age -> \"health-seeking behaviour\"
+  age -> \"past psychiatric drug use\"
+  age -> education
+  age -> income
+
+  education -> \"Psilocybin use\"
+  education -> \"health-seeking behaviour\"
+
+  gender -> \"K6 score at baseline\"
+  gender -> \"Psilocybin use\"
+  gender -> \"health-seeking behaviour\"
+  gender -> \"past psychiatric drug use\"
+  gender -> age
+  gender -> education
+  gender -> income
+
+  income -> \"health-seeking behaviour\"
+  income -> education
+}
+")
+
+library(ggdag)
+tidy_dag <- tidy_dagitty(my_dag)
+
+p <- ggdag(tidy_dag, text = TRUE, text_size = 6, node_size = 10) +
+  theme_dag(base_size = 14)   # controls font sizes
+library(Cairo)
+
+CairoPNG("C:/RProjects/heal/TRIP/Documents/my_dag.png", width = 6*600, height = 6*600, res = 600)  # 6 inches x 6 inches, 600 dpi
+plot(my_dag)
+dev.off()
+
+```
+
+to do: add ever_prescribed to descriptive tab 1
+
+```{r}
+df <- sample %>% filter(time<3) %>%  select(k6_score,treatment, time,id,age_years,max_dose_num,gender,education_level, ever_taken_prescription_mental_health) %>% mutate(age=as.numeric(age_years)) %>% select(-age_years) %>% rename(., outcome = k6_score, prescription=ever_taken_prescription_mental_health)
+
+
+
+df$gender <- factor(df$gender)
+levels(df$gender) <- c("Man", NA, "Other", "Other", "Woman")
+df$education_level <- factor(df$education_level)
+levels(df$education_level)[levels(df$education_level) %in% c("NA")] <- NA
+levels(df$education_level)[levels(df$education_level) %in% c("Junior High or Middle School","High School Diploma or Equivalent")] <- "Less than bachelor"
+levels(df$education_level)[!levels(df$education_level) %in% c("Less than bachelor")] <- "Bachelor or higher"
+df$prescription <- factor(df$prescription)
+levels(df$prescription)[levels(df$prescription)=="NA"] <- NA
+
+df_wide <- df %>% pivot_wider(., id_cols = id, values_from = c(age,outcome,treatment,max_dose_num, gender,education_level,prescription), names_from = time) %>% select(-age_2, -treatment_1, -gender_2,-max_dose_num_1, -education_level_2, -prescription_1) %>% rename(age=age_1,treatment=treatment_2, gender=gender_1,max_dose=max_dose_num_2,education=education_level_1, prescription=prescription_2)
+```
+
+```{r}
+race_vars <- race_df %>% select(starts_with("race_")) %>% select(-ends_with("_text")) %>% colnames()
+race_df <- race_df %>%
+  filter(id %in% df_wide$id) %>%
+  mutate(across(all_of(race_vars), ~ ifelse(. %in% c("NA", ""), NA, .))) %>% 
+  select(where(~ !all(is.na(.)))) 
+
+race_vars_2 <- race_vars[race_vars %in% colnames(race_df)]
+
+race_df <- race_df %>% 
+  mutate(across(all_of(race_vars_2), ~ as.character(.))) %>%
+  mutate(across(all_of(race_vars_2), ~ replace(., is.na(.), "Not selected"))) %>%
+  mutate(across(all_of(race_vars_2),~ factor(., levels = c("Not selected", sort(unique(.))[sort(unique(.)) != "Not selected"])))) 
+
+race_df$race_white[race_df$race_other!= "Not selected"] <- "White (e.g., European)"
+race_df$race_white[race_df$race_indigenous!= "Not selected"] <- "Not selected"
+race_df$race_white[race_df$race_west_asian!= "Not selected"] <- "Not selected"
+race_df$race_white[race_df$race_east_asian!= "Not selected"] <- "Not selected"
+race_df$race_white[race_df$race_south_asian!= "Not selected"] <- "Not selected"
+race_df$race_white[race_df$race_latin_american!= "Not selected"] <- "Not selected"
+
+library(tableone)
+race_df %>% select(all_of(race_vars_2)) %>% select(-race_other) %>% CreateTableOne(data=.)
+
+race_df_unique <- race_df %>%
+  mutate(across(all_of(race_vars_2), as.character)) %>% 
+  mutate(across(all_of(race_vars_2), ~ ifelse(. == "Not selected", NA_character_, .))) %>%
+  mutate(
+    race = pmap_chr(select(., all_of(race_vars_2)), ~ {
+      # return first non-NA value
+      first(na.omit(c(...)))
+    }) %>% as.factor()
+  )
+race_df_unique <- race_df_unique %>% select(id,race)
+
+df_wide <- merge(df_wide, race_df_unique, by = "id")
+```
+
+```{r}
+levels(df_wide$race) <- c("Visible minority", "Indigenous", "Visible minority", "Visible minority","Visible minority", "White") 
+library(tableone)
+tab_1 <- CreateTableOne(vars = c("age", "education", "gender", "race","outcome_1", "outcome_2","prescription"), strata = "treatment", data = df_wide)
+table(df_wide$max_dose[df_wide$treatment==1])
+round(prop.table(table(df_wide$max_dose[df_wide$treatment==1])),2)
+
+model_0 <- lm(outcome_2 ~ treatment, data = df_wide)
+model_1 <- lm(outcome_2 ~ treatment + outcome_1, data = df_wide)
+model_2 <- lm(outcome_2 ~ treatment + outcome_1 + age + gender + education, data = df_wide)
+
+# Age as categorical did not substantially change the results, it was a bit worse
+# model_2_cat <- df_wide %>%
+#   mutate(age_cat = factor(case_when(
+#     age >= 16 & age <= 24 ~ "Young adult",
+#     age >= 25 & age <= 39 ~ "Adult",
+#     age >= 40 & age <= 59 ~ "Old adult",
+#     age >= 60            ~ "Elderly",
+#     TRUE                 ~ NA_character_  # catches anything outside these ranges
+#   ))) %>% lm(outcome_2 ~ treatment + outcome_1 + age_cat + gender + education, data = .)
+
+library(sjPlot)
+tab_model(model_0)
+tab_model(model_1)
+tab_model(model_2)
+
+library(performance)
+model_performance(model_0)
+model_performance(model_1)
+model_performance(model_2)
+
+# Residual SD
+resid_sd <- sd(residuals(model_2))
+
+# Approximate Cohen's d
+d <- c(-2.63, -4.70,-.56) / resid_sd
+round(d,2)
+
+
+plot(model_1$fitted.values, resid(model_1))
+abline(h=0, col="red")
+
+plot(model_2$fitted.values, resid(model_2))
+abline(h=0, col="red")
+
+```
+
+#Fixed effect model
+
+```{r}
+df <- df %>%
+  group_by(id) %>%
+  mutate(
+    gender = ifelse(is.na(gender), first(na.omit(gender)), gender),
+    education_level = ifelse(is.na(education_level), first(na.omit(education_level)), education_level),
+    age = ifelse(is.na(age), first(na.omit(age)), age)   # fill age from observed time
+  ) %>%
+  ungroup()
+
+library(plm)
+# Convert to pdata.frame
+df_plm  <- pdata.frame(df, index = c("id", "time"))
+fe_model <- plm(outcome ~ treatment, data = df_plm, index = c("id", "time"), model = "within")
+
+tab_model(fe_model)
+broom::tidy(fe_model, conf.int=T)
+
+```
+
+
+```{r}
+# random_model <- plm(outcome ~ treatment + age + education_level + gender, data = df_plm, model = "random")
+# phtest(fe_model, random_model) #RE is acceptable
+# tab_model(random_model)
+# broom::tidy(random_model, conf.int=T)
+```
+
+
+```{r}
+library(lme4)
+# model_4 <- lmer(outcome ~ treatment + time  + age + education_level + gender + (1 | id), data = df)
+# tab_model(model_4)
+# summary(model_4) 
+```
+
+```{r}
+# model_performance(model_2) # lm
+# model_performance(fe_model) # fe
+# model_performance(random_model) #rm
+# model_performance(model_4) #me
+# 
+# 
+
+```
+```{r}
+library(survey)
+
+# Step 1: Estimate propensity scores
+ps_model <- glm(treatment ~ outcome_1 + age + gender + education,
+                data = df_wide,
+                family = binomial())
+
+# Step 2: Compute inverse probability weights
+df_wide <- df_wide %>%
+    mutate(ps = predict(ps_model, type = "response"),
+           ipw = ifelse(treatment == 1, 1/ps, 1/(1 - ps)))  %>%
+  mutate(ipw_stab = pmin(ipw, quantile(ipw, 0.99))) #trim weights (n=2)
+
+ggplot(df_wide, aes(x = ps, fill = factor(treatment))) +
+    geom_density(alpha = 0.5) +
+    labs(x = "Propensity Score", fill = "Treatment") +
+    theme_minimal()
+
+# Step 3: Create survey design object for weighted regression
+design <- svydesign(ids = ~1, data = df_wide, weights = ~ipw_stab)
+
+# Verify balance
+tab_b <- svyCreateTableOne(vars = c("outcome_1", "age", "gender", "education"),
+strata = "treatment",
+data = design,
+factorVars = c("gender"))
+# Step 3: Print with standardized mean differences
+print(tab_b, smd = TRUE)
+
+
+# Step 4: Fit weighted outcome model
+ipw_model <- svyglm(outcome_2 ~ treatment, design = design)
+ipw_model_adjusted <- svyglm(outcome_2 ~ treatment + age + gender + education + outcome_1, design = design)
+
+# Step 5: Summarize results
+summary(ipw_model)
+tab_model(ipw_model)
+
+plot(ipw_model_adjusted$fitted.values, resid(ipw_model_adjusted))
+abline(h=0, col="red")
+
+tab_model(model_2, ipw_model_adjusted, file = "models.doc")
+compare_performance(model_2,fe_model,ipw_model_adjusted)
+
+
+```
+
+
+
+
+```{r}
+outlier_id <- part_r %>% filter(t_2==0 & t_3==1) %>% pull(id)
+df_fig_ids <- sample$id[sample$time==3]
+
+df_fig_ids <- df_fig_ids[df_fig_ids!=outlier_id] %>% as.character()
+
+df_fig <- sample %>% filter(id %in% df_fig_ids) %>% select(id,time,k6_score,treatment)
+
+treated_ids <- df_fig %>% 
+  group_by(id) %>% 
+  filter(any(treatment==1)) %>% 
+  pull(id) %>% unique()
+  
+library(ggstatsplot)
+within_plot <- 
+df_fig %>%
+  mutate(intervention=factor(ifelse(id %in% treated_ids, "Intervention","Control")),
+         year = factor(time+2022)) %>% 
+  grouped_ggwithinstats(
+    data = .,
+    x = year,
+    y = k6_score,
+    grouping.var = intervention,
+    type            = "np",
+    xlab            = "Year",
+    ylab            = "Psychological Distress Levels (K6 Score)",
+  )
+
+ggsave("Figure_2_psi.png", plot = within_plot,
+       width = 12, height = 6, units = "in", dpi = 600)
+
+```
+
+```{r}
+not_lost <- sample %>% filter(time==3 & !is.na(treatment)) %>% pull(id) 
+all_ids <- df_wide$id
+lost <- all_ids[!all_ids %in% not_lost]
+
+df_wide <- df_wide %>% mutate(Status=ifelse(id %in% lost, "Lost to follow-up", "Finished the study")) 
+
+lost_tab <- CreateTableOne(vars = c("age", "education", "gender","race", "outcome_1", "outcome_2","prescription"), strata = "Status", data = df_wide)
+lost_tab
+
+ CreateTableOne(vars = c("age", "education", "gender","race", "outcome_1", "outcome_2","prescription"), strata = "Status", data = df_wide %>% filter(treatment==1))
+  CreateTableOne(vars = c("age", "education", "gender","race", "outcome_1", "outcome_2","prescription"), strata = "Status", data = df_wide %>% filter(treatment==0))
+
+pairwise.prop.test(table(df_wide$gender, df_wide$Status), p.adjust.method = "bonferroni")
+
+pairwise.prop.test(table(df_wide$gender[df_wide$treatment==1], df_wide$Status[df_wide$treatment==1]), p.adjust.method = "bonferroni")
+
+pairwise.prop.test(table(df_wide$gender[df_wide$treatment==0], df_wide$Status[df_wide$treatment==0]), p.adjust.method = "bonferroni")
+
+sample %>% filter(time==2 & treatment==1) %>% select(past12m_any_count) %>% psych::describe(.)
+sample %>% filter(time==3 & treatment==1) %>% select(past12m_any_count) %>% psych::describe(.)
+
+```
+Future research can test moderation by past prescription use
+
+```{r}
+
+# panelView::panelview(k6_score ~ treatment,
+#           data = df_fig, index = c("id","time"), type = "outcome", by.group = T)
+# 
+# panelView::panelview(k6_score ~ treatment,
+#           data = df_fig, index = c("id","time"), type = "bivar", by.unit =  T) #
+
+df_fig %>% filter(time>1) %>% filter(id %in% treated_ids) %>%  droplevels.data.frame(.) %>% CreateTableOne(data = ., strata = c("time"), vars="k6_score")
+
+df_fig %>% filter(time>1) %>% filter(!id %in% treated_ids) %>%  droplevels.data.frame(.) %>% CreateTableOne(data = ., strata = c("time"), vars="k6_score")
+
+
+df_fig %>%
+  mutate(intervention=factor(ifelse(id %in% treated_ids, "Intervention","Control"))) %>% 
+  group_by(intervention, time) %>%
+  summarise(mean_outcome = mean(k6_score, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = time+2022, y = mean_outcome, color = intervention)) +
+  geom_line(size = 1.2) +
+  geom_point() +
+  labs(color = "Treatment", y = "Average Kessler Psychological Distress Score") + scale_x_continuous(breaks =c(2023:2025), name = "Year") +
+  theme_bw()
+
+df_fig %>% filter(time>1) %>% filter(id %in% treated_ids) %>%  droplevels.data.frame(.) %>% 
+  lmer(k6_score ~ factor(time) + (1|id), data = .) %>% tab_model()
+
+df_fig %>% filter(time>1) %>% filter(id %in% treated_ids) %>%  droplevels.data.frame(.) %>% 
+  t.test(k6_score ~ factor(time), data = .)
+
+
+df_fig %>% filter(time>1) %>% filter(!id %in% treated_ids) %>%  droplevels.data.frame(.) %>% 
+  lmer(k6_score ~ factor(time) + (1|id), data = .) %>% tab_model() 
+
+df_fig %>% filter(time>1) %>% filter(!id %in% treated_ids) %>%  droplevels.data.frame(.) %>% 
+  group_by(id) %>%
+  mutate(score_within = k6_score - mean(k6_score),
+         time_within = time - mean(time)) %>% ungroup() %>%  lm(score_within ~ time_within, data = .) %>% tab_model()
+```
+
+
+```{r}
+treated_ids_sample <- unique(df$id[df$treatment==1])
+
+df %>%
+  mutate(intervention=factor(ifelse(id %in% treated_ids_sample, "Intervention","Control"))) %>% 
+  group_by(intervention, time) %>%
+  summarise(mean_outcome = mean(outcome, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = time+2022, y = mean_outcome, color = intervention)) +
+  geom_line(size = 1.2) +
+  geom_point() +
+  labs(color = "Treatment", y = "Average Kessler Psychological Distress Score") + scale_x_continuous(breaks =c(2023:2024), name = "Year") +
+  theme_bw()
+```
+
+
+```{r}
+library(ggstatsplot)
+
+df %>%
+  mutate(intervention=factor(ifelse(id %in% treated_ids_sample, "Intervention","Control")),
+         year = factor(time+2022)) %>% 
+  ggwithinstats(
+    data = .,
+    x = year,
+    y = outcome,
+    grouping.var = intervention
+  )
+  
+  
+```
+
+```{r}
+fig_plm  <- pdata.frame(df_fig, index = c("id", "time"))
+
+
+
+
+df <- df %>%
+  group_by(id) %>%
+  mutate(
+    # first intervention time per subject; NA if never intervened
+    int_time = if(any(treatment == 1)) min(time[treatment == 1], na.rm = TRUE) else NA_real_,
+    # post_time: 0 before intervention, counts from 1 after; NA if never intervened
+    post_time = case_when(
+      is.na(int_time) ~ 0,                  # or NA if you prefer
+      time < int_time ~ 0,
+      time >= int_time ~ time - int_time + 1
+    )
+  ) %>%
+  ungroup()
+
+emails_with_three_time_points <- table(df$id)[table(df$id)==3] %>% names()
+df <- df %>% filter(id %in% emails_with_three_time_points) 
+
+# Load libraries
+library(ggplot2)
+library(nlme)         # for generalized least squares (if autocorrelation)
+library(lmtest)       # for testing e.g. autocorrelation
+library(sandwich)     # for robust SEs
+library(sjPlot)
+
+mod_lm <- lm(k6_score ~ time + treatment + post_time, data = df)
+dwtest(mod_lm)           # Durbin-Watson test
+acf(residuals(mod_lm))
+tab_model(mod_lm)
+
+coeftest(mod_lm, vcov = vcovHC(mod_lm, type = "HC1"))
+
+df$fit <- predict(mod_lm, newdata = df)
+# Create a “counterfactual” where intervention=0 and post_time=0 after intervention
+df_cf <- df
+df_cf$intervention <- 0
+df_cf$post_time <- 0
+df$counterfactual <- predict(mod_lm, newdata = df_cf)
+
+df$fit <- predict(mod_lm, newdata = df)
+
+df_cf <- df
+df_cf$intervention <- 0
+df_cf$post_time <- 0
+df$counterfactual <- predict(mod_lm, newdata = df_cf)
+
+ggplot(df, aes(x = time)) +
+  geom_line(aes(y = k6_score), colour = "black") +
+  #geom_line(aes(y = fit), colour = "blue") +
+  geom_line(aes(y = counterfactual), colour = "red", linetype = "dashed") +
+  labs(y = "Outcome", title = "Interrupted Time Series – Observed vs counterfactual")
+
+df$time <- factor(df$time)  # categorical time
+
+mod <- lmer(k6_score ~ time*treatment + (1|id), data = df)
+tab_model(mod)
+
+library(merTools)
+pred_data <- expand_grid(
+  time = factor(unique(df$time)),
+  treatment = c(0,1)
+) %>%
+  mutate(id = df$id[1])  # dummy id
+
+# Predict fixed-effect CI
+pred_intervals <- predictInterval(mod, newdata = pred_data,
+                                  level = 0.95,
+                                  n.sims = 1000,
+                                  stat = "median",
+                                  include.resid.var = FALSE)
+
+# Combine predictions with newdata
+pred_data <- bind_cols(pred_data, pred_intervals)
+
+ggplot(pred_data, aes(x = time, y = fit, color = factor(treatment), group = treatment)) +
+  geom_line(size=1.2) +
+  geom_point(size=3) +
+  geom_ribbon(aes(ymin = lwr, ymax = upr, fill = factor(treatment)), alpha=0.2, color=NA) +
+  labs(x="Time", y="Predicted outcome", color="Treatment", fill="Treatment",
+       title="Predicted trajectories with 95% CI") +
+  theme_minimal()
+
+```
+
+
+
+#The code below would work for people treated in year 1
+```{r}
+library(tidyr)
+library(dplyr)
+
+df_wide <- sample %>% mutate(time=as.numeric(time)-2023) %>% 
+  pivot_wider(id_cols = id,
+              names_from = time,
+              values_from = c(k6_score, treatment, max_dose_num),
+              names_prefix = "t") 
+
+model_t1 <- lm(k6_score_t1 ~ k6_score_t0 + treatment_t1, data = df_wide)
+tab_model(model_t1)
+
+
+df_long <- df_wide %>%
+  pivot_longer(
+    cols = c(k6_score_t1, k6_score_t2),   # only follow-ups
+    names_to = "time",
+    values_to = "k6_score"
+  ) %>%
+  mutate(
+    time = as.numeric(gsub("k6_score_t", "", time)),
+    baseline = k6_score_t0,
+    treatment = ifelse(time == 1, treatment_t1, treatment_t2),
+    dose = ifelse(time == 1, max_dose_num_t1, max_dose_num_t2)
+  )
+
+
+model_long <- lmer(k6_score ~ baseline + treatment + dose + (1 | id), data = df_long)
+tab_model(model_long)
+
+model_long_2 <- lmer(k6_score ~ baseline + treatment + (1 | id), data = df_long)
+tab_model(model_long_2)
+
+```
+
