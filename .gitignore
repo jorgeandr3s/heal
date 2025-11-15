@@ -52,3 +52,17 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Ignore Word temporary lock files
+~$*.docx
+~$*.xlsx
+~$*.pptx
+
+# Ignore Office temp files
+~WRL*.tmp
+
+# General temp files
+*.tmp
+
+# RStudio temporary data files
+*.RDatatmp*
