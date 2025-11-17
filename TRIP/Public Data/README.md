@@ -1,4 +1,8 @@
 # Data Use Agreement for the Tips and Recommendations for the Ingestion of Psilocybin (TRIP) Survey
+
+Current Dataset Version: 1.0 (Initial release)
+Effective Date: November 17, 2025
+
 ## 1. Purpose
 The purpose of this agreement is to govern the use of data from the Tips and Recommendations for the Ingestion of Psilocybin Survey (TRIP Survey). Use of these data for any commercial or non-commercial purposes is permitted **only** under the terms outlined in this document.
 This agreement also notifies the user that the dataset and associated documentation may be updated periodically through quality-improvement processes, regulatory or institutional mandates, or methodological refinements. Users are responsible for checking the following sources for updates:
