@@ -1,6 +1,6 @@
 # Data Use Agreement for the Tips and Recommendations for the Ingestion of Psilocybin (TRIP) Survey
 
-Current Dataset Version: 1.0 (Initial release)
+Current Dataset Version: 1.0 (Initial release)<br>
 Effective Date: November 17, 2025
 
 ## 1. Purpose
