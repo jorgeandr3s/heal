@@ -35,9 +35,6 @@ The TRIP Survey database is the property of the HEAL Lab. Shared use of the data
   <li> Plans for dissemination will be developed collaboratively with the HEAL Lab Director, and draft/final manuscripts or reports will be shared—including an invitation to co-authorship.</li>
   <li> Authorship must be determined in consultation with the HEAL Lab and follow the ICMJE guidelines referenced in the original agreement, including:
   <ul>
-  <li> Substantial contributions to conception/design or data acquisition/analysis/interpretation; **AND** </li>
-  <li> Drafting or critical revision for important intellectual content; **AND** </li>
-  <li> Final approval of the version to be published; **AND** </li>
   <li> Substantial contributions to conception/design or data acquisition/analysis/interpretation; AND </li>
   <li> Drafting or critical revision for important intellectual content; AND </li>
   <li> Final approval of the version to be published; AND </li>
@@ -54,5 +51,4 @@ Because the TRIP Survey may undergo updates to improve quality, incorporate new 
 </ul>
 
 ## 7. Agreement
-By accessing or using the TRIP Survey data, the user agrees to comply with all conditions outlined in this agreement and acknowledges responsibility for maintaining data integrity, security, and appropriate scholarly conduct.
 By accessing or using the TRIP Survey data, the user agrees to comply with all conditions outlined in this agreement and acknowledges responsibility for maintaining data integrity, security, and appropriate scholarly conduct.
